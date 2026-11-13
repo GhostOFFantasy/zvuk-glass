@@ -1,7 +1,8 @@
 'use strict';
 /* Связка интерфейса: навигация, коллекция, поиск, панели, плеер, горячие клавиши */
 (function () {
-  const params = new URLSearchParams(location.search);
+  // параметры служебного запуска приходят от Rust-части (раньше — в адресе страницы)
+  const params = new URLSearchParams(window.__ZG_ARGS__ || location.search);
   const SCREENSHOT = params.get('screenshot') === '1';
 
   const App = {
@@ -1583,6 +1584,12 @@
         App.rerender();
         await wait(600);
       }
+    }
+    // служебно: долгое тихое воспроизведение (проверка медиаклавиш и системной панели Windows)
+    if (extra === 'playlong') {
+      await silentPlay(1);
+      await wait(25000);
+      return window.zvuk.screenshotReady(0);
     }
     // служебно: карточка «О программе» (и баннер, если обновление уже скачано)
     if (extra.startsWith('about')) {

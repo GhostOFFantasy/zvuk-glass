@@ -777,6 +777,15 @@ body:not(.paused) .cf-play .pp-play { display: none; }
 @keyframes toastIn { from { opacity: 0; transform: translateY(16px) scale(0.9); } }
 @keyframes toastOut { to { opacity: 0; transform: translateY(8px) scale(0.95); } }
 
+/* Кнопки окна (рамка окна своя) */
+.win-ctrls { position: fixed; top: 0; right: 0; z-index: 2000; display: flex; height: 44px; -webkit-app-region: no-drag; }
+.win-ctrls button { width: 46px; height: 100%; border: 0; padding: 0; display: grid; place-items: center; background: transparent; color: rgba(242, 242, 247, 0.86); cursor: default; transition: background 0.15s, color 0.15s; }
+.win-ctrls button:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.win-ctrls button:active { background: rgba(255, 255, 255, 0.06); }
+.win-ctrls .wc-close:hover { background: #c42b1c; }
+.win-ctrls .wc-close:active { background: #b3271a; }
+.win-ctrls svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1; shape-rendering: geometricPrecision; overflow: visible; }
+
 /* Готовое обновление */
 .upd-banner { position: fixed; right: 18px; bottom: 122px; z-index: 79; display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 12px; border-radius: 22px; max-width: 470px; animation: toastIn 0.5s var(--spring); -webkit-app-region: no-drag; }
 .upd-banner.out { animation: toastOut 0.3s ease forwards; }

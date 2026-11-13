@@ -1,28 +1,36 @@
 #!/usr/bin/env node
 /*
- * Выпуск новой версии: поднимает номер, собирает установщик и публикует его в GitHub Releases.
+ * Выпуск новой версии: поднимает номер, собирает установщик (Tauri) и публикует его в GitHub Releases.
  * Установленные копии приложения (на любом вашем ПК) увидят релиз и обновятся сами.
  *
- *   npm run release              → 1.0.0 → 1.0.1
- *   npm run release -- minor     → 1.0.0 → 1.1.0
- *   npm run release -- major     → 1.0.0 → 2.0.0
- *   npm run release -- 1.4.2     → ровно эта версия
+ *   npm run release              → 2.0.0 → 2.0.1
+ *   npm run release -- minor     → 2.0.0 → 2.1.0
+ *   npm run release -- major     → 2.0.0 → 3.0.0
+ *   npm run release -- 2.4.2     → ровно эта версия
  *   npm run release -- current   → выпустить текущую версию без изменения номера
- *   добавьте --notes "что нового" — текст появится в описании релиза
+ *   добавьте --notes "что нового" — текст появится в описании релиза и в приложении
  *
- * Перед выпуском все изменения должны быть закоммичены. Токен GitHub берётся из `gh auth token`
- * и передаётся сборщику через переменную окружения — нигде не печатается и не сохраняется.
+ * Нужно: Rust, Node.js, GitHub CLI с входом (gh auth login --web) и ключ подписи обновлений
+ * %USERPROFILE%\.tauri\zvuk-glass.key (без него установленные копии не примут обновление).
+ * Токен GitHub берётся из `gh auth token` и передаётся только дочерним процессам — нигде не печатается.
  */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pkgPath = join(root, 'package.json');
+const cargoPath = join(root, 'src-tauri', 'Cargo.toml');
+const keyPath = join(homedir(), '.tauri', 'zvuk-glass.key');
+const OWNER = 'GhostOFFantasy';
+const REPO = 'zvuk-glass';
+
 const args = process.argv.slice(2);
 const notesAt = args.indexOf('--notes');
-const notes = notesAt >= 0 ? args.splice(notesAt, 2)[1] || '' : '';
+const notesArg = notesAt >= 0 ? args.splice(notesAt, 2)[1] || '' : '';
 const bump = args[0] || 'patch';
 
 const fail = (msg) => {
@@ -31,6 +39,10 @@ const fail = (msg) => {
 };
 const run = (cmd, a, opts = {}) => execFileSync(cmd, a, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...opts }).trim();
 const step = (msg) => console.log('\n▸ ' + msg);
+const withPath = (env) => {
+  const extra = [join(homedir(), '.cargo', 'bin'), dirname(process.execPath)];
+  return { ...env, PATH: [...extra, env.PATH || env.Path || ''].join(';') };
+};
 
 const GH = (() => {
   const local = 'C:\\Program Files\\GitHub CLI\\gh.exe';
@@ -50,8 +62,11 @@ try {
 } catch {
   fail('Нет входа в GitHub. Выполните: gh auth login --web');
 }
+if (!existsSync(keyPath)) fail(`Нет ключа подписи обновлений: ${keyPath}. Без него установленные копии не примут новую версию.`);
 if (run('git', ['status', '--porcelain'])) fail('Есть незакоммиченные изменения — сначала сделайте коммит.');
 const branch = run('git', ['rev-parse', '--abbrev-ref', 'HEAD']);
+const ghEnv = { env: { ...process.env, GH_TOKEN: token } };
+const R = ['-R', `${OWNER}/${REPO}`];
 
 // ---------- Номер версии ----------
 const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
@@ -75,14 +90,11 @@ if (next !== cur) {
   step(`Версия ${cur} → ${next}`);
   pkg.version = next;
   writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
-  const lockPath = join(root, 'package-lock.json');
-  if (existsSync(lockPath)) {
-    const lock = JSON.parse(readFileSync(lockPath, 'utf8'));
-    lock.version = next;
-    if (lock.packages && lock.packages['']) lock.packages[''].version = next;
-    writeFileSync(lockPath, JSON.stringify(lock, null, 2) + '\n');
-  }
-  run('git', ['add', 'package.json', ...(existsSync(lockPath) ? ['package-lock.json'] : [])]);
+  const cargo = readFileSync(cargoPath, 'utf8').replace(/^version = "[^"]+"/m, `version = "${next}"`);
+  writeFileSync(cargoPath, cargo);
+  // обновить номер в Cargo.lock без сети
+  spawnSync('cargo', ['update', '--workspace', '--offline'], { cwd: join(root, 'src-tauri'), stdio: 'ignore', env: withPath(process.env), shell: false });
+  run('git', ['add', 'package.json', 'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock']);
   run('git', ['commit', '-m', `Версия ${next}`]);
 } else step(`Выпускаем текущую версию ${cur}`);
 
@@ -92,32 +104,61 @@ for (const ref of [branch, tag]) {
   if (spawnSync('git', ['push', 'origin', ref], { cwd: root, stdio: 'inherit' }).status !== 0) fail(`Не удалось отправить ${ref} на GitHub`);
 }
 
-// Релиз создаём заранее черновиком: иначе сборщик загружает файлы параллельно
-// и может создать два релиза на один тег. Черновик не виден приложениям, пока не опубликован.
-const repo = pkg.build.publish[0];
-const R = ['-R', `${repo.owner}/${repo.repo}`];
-const ghEnv = { env: { ...process.env, GH_TOKEN: token } };
+// Релиз создаём черновиком: приложения его не видят, пока все файлы не загружены и не проверены
 let existing = null;
 try {
   existing = JSON.parse(run(GH, ['release', 'view', tag, ...R, '--json', 'isDraft'], ghEnv));
 } catch {}
 if (existing && !existing.isDraft) fail(`Релиз ${tag} уже опубликован на GitHub. Выберите другой номер версии.`);
-if (!existing) run(GH, ['release', 'create', tag, ...R, '--draft', '--verify-tag', '--title', tag, '--notes', notes || `Zvuk Glass ${next}`], ghEnv);
+const notes = notesArg || `Zvuk Glass ${next}`;
+if (!existing) run(GH, ['release', 'create', tag, ...R, '--draft', '--verify-tag', '--title', `Zvuk Glass ${next}`, '--notes', notes], ghEnv);
 
-step('Собираем установщик и загружаем его в релиз (пара минут)');
-const cli = join(root, 'node_modules', 'electron-builder', 'cli.js');
-const r = spawnSync(process.execPath, [cli, '--win', '--publish', 'always'], {
+step('Собираем приложение и установщик (несколько минут)');
+const cli = join(root, 'node_modules', '@tauri-apps', 'cli', 'tauri.js');
+const b = spawnSync(process.execPath, [cli, 'build'], {
   cwd: root,
   stdio: 'inherit',
-  env: { ...process.env, GH_TOKEN: token },
+  env: withPath({ ...process.env, TAURI_SIGNING_PRIVATE_KEY: keyPath, TAURI_SIGNING_PRIVATE_KEY_PASSWORD: '' }),
 });
-if (r.status !== 0) fail('Сборка или загрузка не удалась (см. вывод выше). Черновик релиза остался — после исправления запустите: npm run release -- current');
+if (b.status !== 0) fail('Сборка не удалась (см. вывод выше). Черновик релиза остался — после исправления запустите: npm run release -- current');
 
+// ---------- Файлы релиза ----------
+const nsisDir = join(root, 'src-tauri', 'target', 'release', 'bundle', 'nsis');
+const built = join(nsisDir, `Zvuk Glass_${next}_x64-setup.exe`);
+if (!existsSync(built) || !existsSync(built + '.sig')) fail(`Не найден собранный установщик: ${built}`);
+const dist = join(root, 'dist');
+rmSync(dist, { recursive: true, force: true });
+mkdirSync(dist, { recursive: true });
+const setupName = `Zvuk-Glass-Setup-${next}.exe`;
+const setup = join(dist, setupName);
+copyFileSync(built, setup);
+const signature = readFileSync(built + '.sig', 'utf8').trim();
+const url = `https://github.com/${OWNER}/${REPO}/releases/download/${tag}/${setupName}`;
+const pubDate = new Date().toISOString();
+
+// для новых версий (Tauri): описание обновления с подписью
+const platform = { signature, url };
+writeFileSync(
+  join(dist, 'latest.json'),
+  JSON.stringify({ version: next, notes, pub_date: pubDate, platforms: { 'windows-x86_64': platform, 'windows-x86_64-nsis': platform } }, null, 2)
+);
+// для копий 1.x на Electron: они читают latest.yml и сами переходят на новую версию
+const sha512 = createHash('sha512').update(readFileSync(setup)).digest('base64');
+const size = statSync(setup).size;
+writeFileSync(
+  join(dist, 'latest.yml'),
+  `version: ${next}\nfiles:\n  - url: ${setupName}\n    sha512: ${sha512}\n    size: ${size}\npath: ${setupName}\nsha512: ${sha512}\nreleaseDate: '${pubDate}'\n`
+);
+
+step('Загружаем файлы в релиз');
+const files = [setup, join(dist, 'latest.json'), join(dist, 'latest.yml')];
+if (spawnSync(GH, ['release', 'upload', tag, ...R, '--clobber', ...files], { cwd: root, stdio: 'inherit', ...ghEnv }).status !== 0)
+  fail('Не удалось загрузить файлы. Черновик остался — запустите: npm run release -- current');
 const assets = JSON.parse(run(GH, ['release', 'view', tag, ...R, '--json', 'assets'], ghEnv)).assets.map((a) => a.name);
-if (!assets.includes('latest.yml') || !assets.some((n) => n.endsWith('.exe'))) fail(`В черновике ${tag} не хватает файлов: ${assets.join(', ') || 'пусто'}`);
+for (const need of [setupName, 'latest.json', 'latest.yml']) if (!assets.includes(need)) fail(`В черновике ${tag} нет файла ${need}`);
 
 step('Публикуем релиз');
-run(GH, ['release', 'edit', tag, ...R, '--draft=false', '--latest', ...(notes ? ['--notes', notes] : [])], ghEnv);
+run(GH, ['release', 'edit', tag, ...R, '--draft=false', '--latest', '--notes', notes], ghEnv);
 
-console.log(`\n✔ Готово: ${tag} опубликован — https://github.com/${repo.owner}/${repo.repo}/releases/tag/${tag}`);
-console.log('  Установленные копии приложения скачают обновление в течение нескольких часов (или сразу — «Настройки → О программе → Проверить обновления»).');
+console.log(`\n✔ Готово: ${tag} опубликован — https://github.com/${OWNER}/${REPO}/releases/tag/${tag}`);
+console.log('  Установленные копии скачают обновление в течение нескольких часов (или сразу — «Настройки → О программе → Проверить обновления»).');
