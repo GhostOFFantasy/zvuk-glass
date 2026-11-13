@@ -100,6 +100,7 @@
     _changed() {
       this.apply();
       this.onChange && this.onChange(this.eq);
+      window.dispatchEvent(new Event('zg:eq'));
     },
     setEnabled(v) {
       this.eq.enabled = Boolean(v);

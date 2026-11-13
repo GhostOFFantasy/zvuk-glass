@@ -45,6 +45,10 @@ $shots = [ordered]@{
   'clipsync'  = @('--route=visualizer', '--extra=clipsync')
   'sbcollapse' = @('--route=artist:1457739', '--extra=sbcollapse')
   'sbexpand'  = @('--route=artist:1457739', '--extra=sbexpand')
+  'popular'   = @('--route=popular', '--extra=popular')
+  'artistpop' = @('--route=artist:168687', '--extra=artistpop')
+  'voldrag'   = @('--route=release:6233892', '--extra=voldrag')
+  'minieq'    = @('--route=release:6233892', '--extra=minieq')
 }
 $OnlyList = @($Only -split "," | Where-Object { $_ })
 foreach ($name in $shots.Keys) {

@@ -5,3 +5,8 @@ src-tauri/gen/
 *.log
 screenshot.png
 screenshots/
+
+# секреты не должны попасть в репозиторий
+*.key
+*.pem
+.env

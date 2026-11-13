@@ -511,7 +511,8 @@
       // обычный режим проверяется раз в 400 мс, точный — каждые 100 мс
       if (!tight && !Clip._cal && tick % 4) return;
       const a = Player.audio;
-      const playing = !a.paused;
+      // в свёрнутом окне клип стоит (после разворота догонит трек перемоткой)
+      const playing = !a.paused && !(Clip.hidden && !Clip._cal);
       const exp = a.currentTime + Clip.offset;
       const dur = Clip.info && Clip.info.dur;
       for (const m of mounts) {

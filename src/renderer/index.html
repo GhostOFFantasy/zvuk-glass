@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; img-src 'self' https: data: blob: http://zgm.localhost; media-src https: blob: http://zgs.localhost http://zgm.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https: ipc: http://ipc.localhost; font-src 'self' data:; frame-src https://www.youtube-nocookie.com" />
+    content="default-src 'self'; img-src 'self' data: blob: http://zgm.localhost https://zvuk.com https://*.zvuk.com https://zvooq.com https://*.zvooq.com https://*.sbercloud.ru https://i.ytimg.com; media-src blob: http://zgs.localhost http://zgm.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost; font-src 'self' data:; frame-src https://www.youtube-nocookie.com; object-src 'none'; base-uri 'none'" />
   <title>Zvuk Glass</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -57,6 +57,7 @@
       <nav class="nav" id="mainNav">
         <button class="nav-item" data-act="nav" data-view="home" title="Главная"><span class="i" data-icon="home"></span><span class="lbl">Главная</span></button>
         <button class="nav-item" data-act="nav" data-view="wave" title="Моя волна"><span class="i" data-icon="wave"></span><span class="lbl">Моя волна</span></button>
+        <button class="nav-item" data-act="nav" data-view="popular" title="Популярное"><span class="i" data-icon="fire"></span><span class="lbl">Популярное</span></button>
         <button class="nav-item" data-act="nav" data-view="search" title="Поиск"><span class="i" data-icon="search"></span><span class="lbl">Поиск</span></button>
         <button class="nav-item" data-act="nav" data-view="visualizer" title="Визуализатор"><span class="i" data-icon="viz"></span><span class="lbl">Визуализатор</span></button>
         <button class="nav-item" data-act="nav" data-view="equalizer" title="Эквалайзер"><span class="i" data-icon="eq"></span><span class="lbl">Эквалайзер</span></button>
@@ -162,7 +163,16 @@
         <button class="icon-btn like-btn" id="npLike" data-act="like-current" title="Нравится"><span class="i" data-icon="heart"></span></button>
         <button class="chip" id="npLyricsBtn" data-act="np-lyrics" title="Текст песни"><span class="i" data-icon="lyrics"></span>Текст</button>
         <button class="chip" id="npVizBtn" data-act="np-viz" title="Визуализатор под ритм"><span class="i" data-icon="viz"></span>Визуализатор</button>
+        <div class="np-eq-wrap">
+          <button class="chip" id="npEqBtn" data-act="np-eq" title="Эквалайзер"><span class="i" data-icon="eq"></span>Эквалайзер</button>
+          <div class="np-eq glass-menu hidden" id="npEq" role="dialog" aria-label="Эквалайзер"></div>
+        </div>
         <button class="icon-btn" data-act="current-menu" title="Ещё"><span class="i" data-icon="more"></span></button>
+        <div class="np-vol">
+          <button class="icon-btn" id="npVolBtn" data-act="mute" title="Без звука"><span class="i" data-icon="vol2"></span></button>
+          <div class="slider vol" id="npVol" title="Громкость"><div class="fill"></div><div class="thumb"></div></div>
+          <span class="np-vol-val" id="npVolVal"></span>
+        </div>
       </div>
     </div>
     <div class="np-lyrics" id="npLyrics"></div>
