@@ -1,11 +1,16 @@
 ﻿# Служебная проверка интерфейса: делает снимки экранов приложения в гостевом режиме.
-# Использование: powershell -File scripts/screenshots.ps1 -OutDir <папка> [-Only home,search]
+# Использование: powershell -File scripts/screenshots.ps1 -OutDir <папка> [-Only home,search] [-Exe путь]
+# По умолчанию берётся собранная версия (src-tauri/target/release или debug).
 param(
   [Parameter(Mandatory = $true)][string]$OutDir,
-  [string]$Only = ''
+  [string]$Only = '',
+  [string]$Exe = ''
 )
 $root = Split-Path -Parent $PSScriptRoot
-$electron = Join-Path $root 'node_modules/electron/dist/electron.exe'
+if (-not $Exe) {
+  $Exe = @('src-tauri/target/release/zvuk-glass.exe', 'src-tauri/target/debug/zvuk-glass.exe') | ForEach-Object { Join-Path $root $_ } | Where-Object { Test-Path $_ } | Select-Object -First 1
+}
+if (-not $Exe) { Write-Error 'Сначала соберите приложение: npm run build'; exit 1 }
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
 $shots = [ordered]@{
@@ -44,8 +49,8 @@ foreach ($name in $shots.Keys) {
   if ($OnlyList.Count -and -not ($OnlyList -contains $name)) { continue }
   $out = Join-Path $OutDir "shot-$name.png"
   if (Test-Path $out) { Remove-Item $out }
-  $args = @($root, "--screenshot=$out") + $shots[$name]
-  $p = Start-Process -FilePath $electron -ArgumentList $args -NoNewWindow -PassThru -RedirectStandardOutput "$OutDir/$name.out" -RedirectStandardError "$OutDir/$name.err"
+  $args = @("--screenshot=$out") + $shots[$name]
+  $p = Start-Process -FilePath $Exe -ArgumentList $args -NoNewWindow -PassThru -RedirectStandardOutput "$OutDir/$name.out" -RedirectStandardError "$OutDir/$name.err"
   if (-not $p.WaitForExit(90000)) { $p.Kill(); Write-Output "$name : TIMEOUT" ; continue }
   $log = Get-Content "$OutDir/$name.out" -ErrorAction SilentlyContinue | Where-Object { $_ -notmatch 'SCREENSHOT_SAVED' -and $_.Trim() }
   Write-Output ("{0} : {1}" -f $name, $(if (Test-Path $out) { 'ok' } else { 'НЕТ СНИМКА' }))
