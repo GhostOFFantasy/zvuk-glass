@@ -46,6 +46,8 @@
       thumbarIcons: (icons) => invoke('thumbar_icons', { icons }).catch(() => {}),
       appIcon: () => {}, // значок приложения теперь встроен при сборке
     },
+    /** Окно свёрнуто (true) / снова на экране (false). */
+    onHidden: (fn) => listen('win:hidden', (e) => fn(Boolean(e.payload))),
     clipboard: (text) => invoke('clipboard_write', { text: String(text || '') }),
     readClipboard: () => invoke('clipboard_read'),
     media: {

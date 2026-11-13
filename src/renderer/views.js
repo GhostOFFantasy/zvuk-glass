@@ -252,6 +252,56 @@
     ]);
   };
 
+  // ---------- Популярное: чарт «Топ 100», чарты, артисты и релизы из чарта, хиты десятилетий, подборки ----------
+  const TOP_SHOWN = 10;
+  Views.popular = async (view) => {
+    view.innerHTML = `<h1 class="page-title">Популярное</h1>
+      <div class="top-hero glass skel-hero"><div class="skel" style="height:100%;border-radius:inherit"></div></div>
+      ${skeletonShelf('Чарты и хиты')}${skeletonShelf('Артисты чарта', true)}`;
+    const d = await api('popular');
+    const top = (d.top?.tracks || []).filter(Boolean);
+    const src = { kind: 'list', title: 'Топ 100' };
+    const tl = trackList(top, src, { head: false, album: true, num: (t, i) => i + 1 });
+    // артисты и релизы — по порядку мест в чарте, без повторов
+    const artists = [];
+    const releases = [];
+    const seenA = new Set();
+    const seenR = new Set();
+    for (const t of top) {
+      for (const a of t.artists || []) if (a?.id && !seenA.has(a.id) && artists.length < 24) seenA.add(a.id) && artists.push(a);
+      const r = t.release;
+      if (r?.id && !seenR.has(r.id) && releases.length < 24) seenR.add(r.id) && releases.push({ ...r, artists: t.artists });
+    }
+    const upd = d.top?.updated ? new Date(d.top.updated) : null;
+    const updText = upd && !isNaN(upd) ? `обновлён ${upd.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}` : '';
+    const podium = top.slice(0, 3).map((t, i) => `<div class="tp-card p${i + 1}" data-act="play-row" data-list="${tl.listId}" data-idx="${i}" title="${esc(t.title)} — ${esc(artistsText(t.artists))}">
+        <img src="${esc(cover(t, 300))}" alt="" draggable="false"><span class="tp-place">${i + 1}</span></div>`).join('');
+    view.innerHTML = `<h1 class="page-title">Популярное</h1>
+      ${top.length ? `<div class="top-hero glass">
+        <div class="top-info"><div class="kind">${icon('fire')}Чарт Звука</div><h2>${esc(d.top.title || 'Топ 100')}</h2>
+          <p>Самые прослушиваемые треки дня${updText ? ` · ${updText}` : ''}</p>
+          <div class="top-btns"><button class="btn primary" data-act="play-list-all" data-list="${tl.listId}">${icon('play')}Слушать чарт</button>
+            <button class="btn" data-act="shuffle-list" data-list="${tl.listId}">${icon('shuffle')}Вперемешку</button>
+            <button class="btn" data-act="open" data-kind="playlist" data-id="${esc(d.top.id)}">${icon('playlist')}Плейлист</button></div></div>
+        <div class="top-podium">${podium}</div>
+      </div>
+      <section class="section pop-sec"><div class="section-head"><h2>Топ 100</h2><span class="pop-count">${tracksWord(top.length)}</span></div>
+        <div class="pop-tracks top-list collapsed" id="topList" style="--rows:${TOP_SHOWN}">${tl.html}</div>
+        ${top.length > TOP_SHOWN ? `<div class="pop-more"><button class="chip" data-act="top-toggle">Показать все ${top.length}</button></div>` : ''}</section>` : ''}
+      ${d.charts?.length ? shelf('Чарты и хиты', d.charts.map(playlistCard).join('')) : ''}
+      ${artists.length ? shelf('Артисты чарта', artists.map(artistCard).join('')) : ''}
+      ${releases.length ? shelf('Релизы из чарта', releases.map(releaseCard).join('')) : ''}
+      ${d.decades?.length ? shelf('Хиты десятилетий', d.decades.map(playlistCard).join('')) : ''}
+      ${d.editorial?.length ? `<section class="section"><div class="section-head"><h2>Подборки редакции</h2></div><div class="grid">${d.editorial.map(playlistCard).join('')}</div></section>` : ''}`;
+  };
+  Views.topToggle = (btn) => {
+    const box = document.getElementById('topList');
+    if (!box) return;
+    const open = box.classList.toggle('collapsed');
+    btn.textContent = open ? `Показать все ${box.querySelectorAll('.tr').length}` : 'Свернуть';
+    if (open) box.closest('.section').scrollIntoView({ block: 'start', behavior: 'smooth' });
+  };
+
   // ---------- Моя волна ----------
   Views.wave = async (view) => {
     const w = App.settings.wave || {};
@@ -403,14 +453,66 @@
         <button class="btn" data-act="radio" data-type="ARTIST" data-id="${esc(a.id)}" data-title="${esc(a.title)}">${icon('radio')}Радио исполнителя</button>
         <button class="btn like-btn${liked ? ' liked' : ''}" data-act="like" data-type="artist" data-id="${esc(a.id)}">${icon(liked ? 'heartFill' : 'heart')}<span>${liked ? 'В коллекции' : 'В коллекцию'}</span></button>
       </div>
-      ${pop.length ? `<section class="section"><div class="section-head"><h2>Популярные треки</h2></div>
-        <div id="popTracks" style="max-height:${58 * 5 + 10}px;overflow:hidden">${tl.html}</div>
-        ${pop.length > 5 ? '<button class="more" data-act="expand-pop" style="margin-top:8px;color:var(--text-2);font-weight:600">Ещё</button>' : ''}</section>` : ''}
+      ${pop.length ? `<section class="section pop-sec" id="popSec"><div class="section-head"><h2>Популярные треки</h2><span class="pop-count" id="popCount"></span></div>
+        <div id="popTracks" class="pop-tracks collapsed">${tl.html}</div>
+        <div class="pop-more">${pop.length > 5 ? '<button class="chip" data-act="expand-pop">Ещё</button>' : ''}</div></section>` : ''}
       ${albums.length ? shelf('Альбомы', albums.map(releaseCardType).join('')) : ''}
       ${singles.length ? shelf('Синглы и EP', singles.map(releaseCardType).join('')) : ''}
       ${comps.length ? shelf('Сборники', comps.map(releaseCardType).join('')) : ''}
       ${a.relatedArtists?.length ? shelf('Похожие исполнители', a.relatedArtists.map(artistCard).join('')) : ''}
       ${a.description ? `<section class="section"><div class="section-head"><h2>Об исполнителе</h2></div><div class="glass panel" style="padding:22px 24px;border-radius:24px;max-width:900px"><div style="position:relative;z-index:2;color:var(--text-2);white-space:pre-line;user-select:text">${esc(a.description)}</div></div></section>` : ''}`;
+    const sec = view.querySelector('#popSec');
+    // Список из getArtist (20 шт.) дополняется полным при первом «Ещё». Массив pop зарегистрирован как
+    // список воспроизведения — новые треки дописываются в него же, и клик по любой строке играет всё подряд.
+    // Zvuk отдаёт на одну позицию меньше запрошенного (19 из 20) — полный список догружаем, если пришло 15 и больше
+    if (sec) sec._pop = { id: a.id, tracks: pop, listId: tl.listId, shown: pop.length, full: pop.length < 15, loading: null };
+  };
+
+  const POP_STEP = 50;
+  /** «Ещё» в популярных треках: сначала раскрываем первые 20, затем догружаем полный список и показываем порциями. */
+  Views.popMore = async (btn, collapse) => {
+    const sec = btn.closest('#popSec');
+    const st = sec && sec._pop;
+    if (!st) return;
+    const box = sec.querySelector('#popTracks');
+    const list = box.querySelector('.tracks');
+    const more = sec.querySelector('.pop-more');
+    if (collapse) {
+      box.classList.add('collapsed');
+      more.innerHTML = '<button class="chip" data-act="expand-pop">Ещё</button>';
+      sec.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      return;
+    }
+    const wasCollapsed = box.classList.contains('collapsed');
+    box.classList.remove('collapsed');
+    btn.disabled = true;
+    if (!st.full && !st.loading) {
+      st.loading = api('getArtistTracks', st.id, 500)
+        .then((all) => {
+          const have = new Set(st.tracks.map((t) => String(t.id)));
+          for (const t of all || []) if (!have.has(String(t.id))) st.tracks.push(t);
+          st.full = true;
+        })
+        .catch(() => {})
+        .finally(() => (st.loading = null));
+    }
+    if (!wasCollapsed) {
+      // уже раскрыто — показываем следующую порцию
+      if (st.loading) {
+        btn.disabled = true;
+        btn.textContent = 'Загружаю…';
+        await st.loading;
+      }
+      const from = list.children.length;
+      const to = Math.min(st.tracks.length, from + POP_STEP);
+      list.insertAdjacentHTML('beforeend', st.tracks.slice(from, to).map((t, i) => trackRow(t, from + i, st.listId, { album: true })).join(''));
+      st.shown = to;
+    } else if (st.loading) await st.loading;
+    const left = st.tracks.length - list.children.length;
+    sec.querySelector('#popCount').textContent = st.full ? tracksWord(st.tracks.length) : '';
+    more.innerHTML =
+      (left > 0 ? `<button class="chip" data-act="expand-pop">Показать ещё ${Math.min(left, POP_STEP)}</button>` : '') +
+      '<button class="chip" data-act="collapse-pop">Свернуть</button>';
   };
 
   // ---------- Релиз ----------
@@ -631,49 +733,27 @@
   };
 
   // ---------- Эквалайзер ----------
-  Views.equalizer = async (view) => {
-    const eq = AudioFX.eq;
-    const fmtDb = (v) => (v > 0 ? '+' : '') + (Math.round(v * 10) / 10).toFixed(Math.abs(v) % 1 ? 1 : 0);
-    const slider = (band, label) => `<div class="vs${band === 'pre' ? ' pre' : ''}" data-band="${band}">
+  const fmtDb = (v) => (v > 0 ? '+' : '') + (Math.round(v * 10) / 10).toFixed(Math.abs(v) % 1 ? 1 : 0);
+  const eqSlider = (band, label) => `<div class="vs${band === 'pre' ? ' pre' : ''}" data-band="${band}">
         <div class="val"></div><div class="track"><div class="fill"></div><div class="knob"></div></div><div class="lbl">${label}</div></div>`;
-    view.innerHTML = `<div class="eq-head"><h1 class="page-title">Эквалайзер</h1>
-        <div class="ctrl">${AudioFX.ready ? '' : '<span class="muted small">Web Audio недоступен</span>'}<span>Включён</span><button class="switch${eq.enabled ? ' on' : ''}" id="eqSwitch"></button></div></div>
-      <div class="eq-panel glass${eq.enabled ? '' : ' off'}" id="eqPanel">
-        <div class="eq-grid">
-          ${slider('pre', 'Уровень')}
-          <div class="eq-sep"></div>
-          <div class="eq-bands"><canvas class="eq-canvas" id="eqCanvas"></canvas>${AudioFX.FREQS.map((f, i) => slider(i, AudioFX.LABELS[i])).join('')}</div>
-        </div>
-      </div>
-      <div class="eq-presets" id="eqPresets"></div>
-      <div class="eq-options">
-        <div class="opt"><button class="switch${eq.compressor ? ' on' : ''}" id="eqComp"></button>Компрессор — выравнивает громкость тихих и громких мест</div>
-        <button class="btn" id="eqReset">${icon('refresh')}Сбросить</button>
-      </div>
-      <p class="eq-note">Тяните ползунки вверх и вниз · двойной щелчок возвращает 0 дБ · колёсико мыши — точная подстройка. Настройки применяются ко всей музыке сразу.</p>`;
-
-    const panel = view.querySelector('#eqPanel');
-    const sync = () => {
-      const e = AudioFX.eq;
-      panel.classList.toggle('off', !e.enabled);
-      view.querySelector('#eqSwitch').classList.toggle('on', e.enabled);
-      view.querySelector('#eqComp').classList.toggle('on', e.compressor);
-      view.querySelectorAll('.vs').forEach((el) => {
-        const b = el.dataset.band;
-        const v = b === 'pre' ? e.preamp : e.bands[+b];
-        const top = ((12 - v) / 24) * 100;
-        el.querySelector('.val').textContent = fmtDb(v) + ' дБ';
-        el.querySelector('.knob').style.top = top + '%';
-        const fill = el.querySelector('.fill');
-        fill.style.top = Math.min(50, top) + '%';
-        fill.style.height = Math.abs(top - 50) + '%';
-      });
-      view.querySelector('#eqPresets').innerHTML =
-        Object.entries(AudioFX.PRESETS).map(([id, p]) => `<button class="chip${e.preset === id ? ' on' : ''}" data-eqp="${id}">${p.name}</button>`).join('') +
-        (e.preset === 'custom' ? '<button class="chip on">Свой</button>' : '');
-    };
+  /** Положение вертикальных ползунков (.vs[data-band]) по текущим настройкам. */
+  function paintEqSliders(root, unit = ' дБ') {
+    const e = AudioFX.eq;
+    root.querySelectorAll('.vs').forEach((el) => {
+      const b = el.dataset.band;
+      const v = b === 'pre' ? e.preamp : e.bands[+b];
+      const top = ((12 - v) / 24) * 100;
+      el.querySelector('.val').textContent = fmtDb(v) + unit;
+      el.querySelector('.knob').style.top = top + '%';
+      const fill = el.querySelector('.fill');
+      fill.style.top = Math.min(50, top) + '%';
+      fill.style.height = Math.abs(top - 50) + '%';
+    });
+  }
+  /** Перетаскивание, двойной щелчок и колёсико на ползунках — общие для страницы и мини-эквалайзера. */
+  function bindEqSliders(root, sync) {
     const setVal = (band, v) => (band === 'pre' ? AudioFX.setPreamp(v) : AudioFX.setBand(+band, v));
-    view.querySelectorAll('.vs').forEach((el) => {
+    root.querySelectorAll('.vs').forEach((el) => {
       const track = el.querySelector('.track');
       const band = el.dataset.band;
       const fromY = (y) => {
@@ -682,6 +762,7 @@
       };
       let drag = false;
       track.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
         drag = true;
         el.classList.add('drag');
         track.setPointerCapture(e.pointerId);
@@ -710,6 +791,45 @@
         sync();
       });
     });
+  }
+  /** Кнопки пресетов (активный подсвечен, «Свой» — если ползунки двигали вручную). */
+  const eqPresetChips = () =>
+    Object.entries(AudioFX.PRESETS).map(([id, p]) => `<button class="chip${AudioFX.eq.preset === id ? ' on' : ''}" data-eqp="${id}">${p.name}</button>`).join('') +
+    (AudioFX.eq.preset === 'custom' ? '<button class="chip on">Свой</button>' : '');
+  Views.eq = { slider: eqSlider, paint: paintEqSliders, bind: bindEqSliders, presets: eqPresetChips };
+
+  Views.equalizer = async (view) => {
+    const eq = AudioFX.eq;
+    const slider = eqSlider;
+    view.innerHTML = `<div class="eq-head"><h1 class="page-title">Эквалайзер</h1>
+        <div class="ctrl">${AudioFX.ready ? '' : '<span class="muted small">Web Audio недоступен</span>'}<span>Включён</span><button class="switch${eq.enabled ? ' on' : ''}" id="eqSwitch"></button></div></div>
+      <div class="eq-panel glass${eq.enabled ? '' : ' off'}" id="eqPanel">
+        <div class="eq-grid">
+          ${slider('pre', 'Уровень')}
+          <div class="eq-sep"></div>
+          <div class="eq-bands"><canvas class="eq-canvas" id="eqCanvas"></canvas>${AudioFX.FREQS.map((f, i) => slider(i, AudioFX.LABELS[i])).join('')}</div>
+        </div>
+      </div>
+      <div class="eq-presets" id="eqPresets"></div>
+      <div class="eq-options">
+        <div class="opt"><button class="switch${eq.compressor ? ' on' : ''}" id="eqComp"></button>Компрессор — выравнивает громкость тихих и громких мест</div>
+        <button class="btn" id="eqReset">${icon('refresh')}Сбросить</button>
+      </div>
+      <p class="eq-note">Тяните ползунки вверх и вниз · двойной щелчок возвращает 0 дБ · колёсико мыши — точная подстройка. Настройки применяются ко всей музыке сразу.</p>`;
+
+    const panel = view.querySelector('#eqPanel');
+    const sync = () => {
+      const e = AudioFX.eq;
+      panel.classList.toggle('off', !e.enabled);
+      view.querySelector('#eqSwitch').classList.toggle('on', e.enabled);
+      view.querySelector('#eqComp').classList.toggle('on', e.compressor);
+      paintEqSliders(view);
+      view.querySelector('#eqPresets').innerHTML = eqPresetChips();
+    };
+    // изменения из мини-эквалайзера в полноэкранном плеере
+    const onExternal = () => (view.contains(panel) ? sync() : window.removeEventListener('zg:eq', onExternal));
+    window.addEventListener('zg:eq', onExternal);
+    bindEqSliders(view, sync);
     view.querySelector('#eqSwitch').addEventListener('click', () => {
       AudioFX.setEnabled(!AudioFX.eq.enabled);
       sync();

@@ -55,8 +55,20 @@
     },
   };
 
+  // Экономия: окно свёрнуто — не рисуем вовсе; музыка на паузе и нет «дышащих» холстов — проверяем раз в 250 мс
+  let nap = 0;
+  let quiet = 0;
+  Viz.hidden = false;
+  Viz.setHidden = (v) => {
+    Viz.hidden = Boolean(v);
+    if (!Viz.hidden) start();
+  };
   function start() {
-    if (!raf) raf = requestAnimationFrame(loop);
+    if (nap) {
+      clearTimeout(nap);
+      nap = 0;
+    }
+    if (!raf && !Viz.hidden) raf = requestAnimationFrame(loop);
   }
 
   // Цвета темы в виде [r,g,b] — для мягких полупрозрачных градиентов
@@ -99,10 +111,23 @@
   function loop() {
     raf = 0;
     for (const h of [...handles]) if (!h.canvas.isConnected) handles.delete(h);
-    if (!handles.size) return;
-    raf = requestAnimationFrame(loop);
-    readColors();
+    if (!handles.size || Viz.hidden) return;
     const live = AudioFX.ready && !Player.audio.paused;
+    quiet = live || Viz.level > 0.002 || Viz.beat > 0.01 ? 0 : quiet + 1;
+    if (quiet > 90) {
+      let calm = true;
+      for (const h of handles) if (h.opts.idle || h.opts.onFrame) calm = false;
+      if (calm) {
+        nap = setTimeout(() => {
+          nap = 0;
+          start();
+        }, 250);
+        return;
+      }
+    }
+    raf = requestAnimationFrame(loop);
+    Viz._frames = (Viz._frames || 0) + 1;
+    readColors();
     tIdle += 0.016;
     if (AudioFX.ready) {
       const a = AudioFX.analyser;

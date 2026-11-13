@@ -14,6 +14,10 @@ use tauri::http::{Request, Response, StatusCode};
 
 use crate::store::Store;
 
+/// Потоки и свои файлы читает только страница приложения: клип YouTube (тоже внутри окна)
+/// не сможет прочитать их скриптом.
+const APP_ORIGIN: &str = "http://tauri.localhost";
+
 /// Сколько отдаём за один запрос. Плеер сам дозапрашивает следующие куски.
 const STREAM_CHUNK: u64 = 2 * 1024 * 1024;
 const FILE_CHUNK: u64 = 4 * 1024 * 1024;
@@ -45,7 +49,7 @@ pub struct Streams {
 
 impl Streams {
     pub fn new() -> Self {
-        let http = reqwest::Client::builder().connect_timeout(Duration::from_secs(15)).build().expect("http client");
+        let http = reqwest::Client::builder().user_agent(crate::zvuk::user_agent()).connect_timeout(Duration::from_secs(15)).build().expect("http client");
         Self { http, map: Mutex::new(HashMap::new()), next: Mutex::new(1) }
     }
 
@@ -85,7 +89,7 @@ impl Streams {
             .status(status.as_u16())
             .header("Content-Type", ctype)
             .header("Accept-Ranges", "bytes")
-            .header("Access-Control-Allow-Origin", "*")
+            .header("Access-Control-Allow-Origin", APP_ORIGIN)
             .header("Cache-Control", "no-store")
             .header("Content-Length", body.len().to_string());
         if let Some(cr) = crange {
@@ -106,7 +110,7 @@ fn parse_range(h: Option<&str>) -> (Option<u64>, Option<u64>) {
 }
 
 fn plain(code: StatusCode) -> Response<Vec<u8>> {
-    Response::builder().status(code).header("Access-Control-Allow-Origin", "*").body(Vec::new()).unwrap()
+    Response::builder().status(code).header("Access-Control-Allow-Origin", APP_ORIGIN).body(Vec::new()).unwrap()
 }
 
 // ---------- Свои файлы ----------
@@ -185,7 +189,7 @@ pub fn serve_file(store: &Store, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
             .header("Content-Type", mime)
             .header("Accept-Ranges", "bytes")
             .header("Cache-Control", "no-cache")
-            .header("Access-Control-Allow-Origin", "*")
+            .header("Access-Control-Allow-Origin", APP_ORIGIN)
     };
     if range.is_none() {
         // картинки и прочее без Range — целиком (видео плеер всегда просит кусками)

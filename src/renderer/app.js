@@ -617,8 +617,9 @@
         if (!p.tracks.length) return toast('Плейлист пуст');
         Player.playList(p.tracks, 0, { kind: 'list', title: p.title });
       } else if (kind === 'artist') {
-        const a = await api('getArtist', id);
-        Player.playList(a.popularTracks || [], 0, { kind: 'list', title: a.title });
+        const [a, tracks] = await Promise.all([api('getArtistsShort', [id]).then((r) => r[0]).catch(() => null), api('getArtistTracks', id, 100)]);
+        if (!tracks.length) return toast('У исполнителя нет треков');
+        Player.playList(tracks, 0, { kind: 'list', title: a?.title || tracks[0].artists?.[0]?.title || 'Исполнитель' });
       } else if (kind === 'wave') {
         startEditorialWave(id);
       } else if (kind === 'liked') {
@@ -683,7 +684,7 @@
   // ======================================================================
   // Привязка плеера к интерфейсу
   // ======================================================================
-  let seekUI, npSeekUI, volUI;
+  let seekUI, npSeekUI, volUI, npVolUI;
   function bindPlayer() {
     seekUI = slider($('#seek'), {
       onInput: (v) => {
@@ -701,18 +702,25 @@
       },
       onCommit: (v) => Player.seek(v * (Player.audio.duration || 0)),
     });
-    volUI = slider($('#vol'), {
-      onInput: (v) => {
-        Player.volume = v;
-        Player.muted = false;
-        Player._applyVolume();
-      },
-      onCommit: (v) => Player.setVolume(v),
-    });
-    $('#vol').addEventListener('wheel', (e) => {
-      e.preventDefault();
-      Player.setVolume(Player.volume + (e.deltaY < 0 ? 0.05 : -0.05));
-    });
+    // Громкость: полоска в панели плеера и такая же в полноэкранном плеере
+    const volSlider = (el) => {
+      const ui = slider(el, {
+        onInput: (v) => {
+          Player.volume = v;
+          Player.muted = false;
+          Player._applyVolume();
+          ui.setForce(v); // во время перетаскивания set() пропускается — двигаем полоску сами
+        },
+        onCommit: (v) => Player.setVolume(v),
+      });
+      el.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        Player.setVolume(Player.volume + (e.deltaY < 0 ? 0.05 : -0.05));
+      });
+      return ui;
+    };
+    volUI = volSlider($('#vol'));
+    npVolUI = volSlider($('#npVol'));
 
     Player.on('track', (t) => {
       $('#plTitle').innerHTML = t.release ? `<span class="lnk" data-act="nav" data-view="release" data-id="${esc(t.release.id)}">${esc(t.title)}</span>` : esc(t.title);
@@ -770,12 +778,25 @@
     }, 60));
     Player.on('modes', renderModes);
     Player.on('volume', ({ volume, muted }) => {
-      volUI.set(muted ? 0 : volume);
-      $('#plVolBtn .i').innerHTML = ICONS[muted || volume === 0 ? 'vol0' : volume < 0.5 ? 'vol1' : 'vol2'];
+      const v = muted ? 0 : volume;
+      volUI.setForce(v);
+      npVolUI.setForce(v);
+      const ic = ICONS[muted || volume === 0 ? 'vol0' : volume < 0.5 ? 'vol1' : 'vol2'];
+      $('#plVolBtn .i').innerHTML = ic;
+      $('#npVolBtn .i').innerHTML = ic;
+      $('#npVolVal').textContent = Math.round(v * 100) + '%';
     });
     Player.on('empty', () => startMyWave());
     Player.on('loading', (on) => document.body.classList.toggle('loading', on));
     window.zvuk.player.onCommand((cmd) => (cmd === 'toggle' ? Player.toggle() : cmd === 'next' ? Player.next() : Player.prev()));
+    // Свёрнутое окно ничего не рисует: визуализатор, клип, видео-обои и анимации встают, музыка играет
+    window.zvuk.onHidden((hidden) => {
+      document.body.classList.toggle('win-hidden', hidden);
+      Viz.setHidden(hidden);
+      Clip.hidden = hidden;
+      const vid = $('#bgVideo');
+      if (vid && vid.getAttribute('src')) hidden ? vid.pause() : vid.play().catch(() => {});
+    });
     renderModes();
     Player._applyVolume();
   }
@@ -1147,6 +1168,9 @@
       case 'np-viz':
         NP.toggleViz();
         break;
+      case 'np-eq':
+        NP.toggleEq();
+        break;
       case 'toggle-compact':
         toggleCompact();
         break;
@@ -1196,12 +1220,15 @@
         el.remove();
         break;
       }
-      case 'expand-pop': {
-        const box = $('#popTracks');
-        if (box) box.style.maxHeight = 'none';
-        el.remove();
+      case 'expand-pop':
+        Views.popMore(el);
         break;
-      }
+      case 'collapse-pop':
+        Views.popMore(el, true);
+        break;
+      case 'top-toggle':
+        Views.topToggle(el);
+        break;
       case 'shelf-scroll': {
         const sh = el.closest('.section').querySelector('.shelf');
         sh.scrollBy({ left: +d.dir * sh.clientWidth * 0.85 });
@@ -1455,7 +1482,8 @@
     }
     if (e.key === 'Escape') {
       closeMenu();
-      if (npOpen()) closeNowPlaying();
+      if (NP.eqOpen) NP.closeEq();
+      else if (npOpen()) closeNowPlaying();
       return;
     }
     if (e.altKey && e.key === 'ArrowLeft') return goBack();
@@ -1664,6 +1692,93 @@
         await wait(600);
         console.warn(`SELFTEST npviz: vizOn=${NP.vizOn} canvas=${Boolean($('#npScene canvas'))} level=${Viz.level.toFixed(3)} appHidden=${document.body.classList.contains('np-open')}`);
       }
+    } else if (extra === 'voldrag' || extra === 'minieq') {
+      // настоящая мышь: зажать полоску громкости и тянуть — полоска должна идти за курсором до отпускания
+      const M = window.zvuk.debug.mouse;
+      const dragVol = async (el, tag) => {
+        const r = el.getBoundingClientRect();
+        const y = r.top + r.height / 2;
+        const at = (p) => r.left + r.width * p;
+        await M(at(0.85), y);
+        await wait(150);
+        await M(at(0.85), y, 'mousePressed');
+        const seen = [];
+        for (let k = 1; k <= 6; k++) {
+          await M(at(0.85 - k * 0.1), y, 'mouseDragged');
+          await wait(90);
+          seen.push(parseFloat(el.querySelector('.fill').style.width).toFixed(0));
+        }
+        await M(at(0.25), y, 'mouseReleased');
+        await wait(200);
+        console.warn(`SELFTEST voldrag ${tag}: fill during drag=${seen.join(',')}% final=${parseFloat(el.querySelector('.fill').style.width).toFixed(0)}% volume=${Player.volume.toFixed(2)} label=${$('#npVolVal').textContent}`);
+      };
+      const l = firstList();
+      if (l) Player.cue(l.tracks, Math.min(2, l.tracks.length - 1), 0, l.source);
+      await wait(800);
+      if (extra === 'voldrag') await dragVol($('#vol'), 'bar');
+      else {
+        openNowPlaying();
+        await wait(1500);
+        await dragVol($('#npVol'), 'np');
+        console.warn(`SELFTEST npvol mirrored: bar=${parseFloat($('#vol .fill').style.width).toFixed(0)}%`);
+        $('#npEqBtn').click();
+        await wait(500);
+        $('#npEq [data-eqp="rock"]').click();
+        await wait(300);
+        // тянем полосу 64 Гц вниз настоящей мышью
+        const tr = $$('#npEq .vs')[1].querySelector('.track').getBoundingClientRect();
+        const cx = tr.left + tr.width / 2;
+        await M(cx, tr.top + tr.height * 0.3);
+        await M(cx, tr.top + tr.height * 0.3, 'mousePressed');
+        for (let k = 1; k <= 5; k++) {
+          await M(cx, tr.top + tr.height * (0.3 + k * 0.08), 'mouseDragged');
+          await wait(60);
+        }
+        await M(cx, tr.top + tr.height * 0.7, 'mouseReleased');
+        await wait(300);
+        console.warn(`SELFTEST npeq: open=${NP.eqOpen} enabled=${AudioFX.eq.enabled} preset=${AudioFX.eq.preset} bands=${AudioFX.eq.bands.join('/')} state=${$('#npEq .ne-state').textContent} plBtnOn=${$('#plEqBtn').classList.contains('on')}`);
+        await M(tr.left + tr.width / 2, tr.top + tr.height * 0.7);
+        await wait(400);
+      }
+    } else if (extra === 'artistpop') {
+      const rows = () => $$('#popTracks .tr').length;
+      const btn = () => $('#popSec .pop-more [data-act="expand-pop"]');
+      console.warn(`SELFTEST artistpop start: rows=${rows()} btn=${btn() && btn().textContent}`);
+      btn() && btn().click();
+      await wait(4000);
+      console.warn(`SELFTEST artistpop expanded: rows=${rows()} count=${$('#popCount').textContent} btn=${btn() && btn().textContent}`);
+      btn() && btn().click();
+      await wait(1500);
+      const ids = $$('#popTracks .tr').map((r) => r.dataset.track);
+      console.warn(`SELFTEST artistpop more: rows=${rows()} unique=${new Set(ids).size} btn=${btn() && btn().textContent} listLen=${UI.Lists.get($('#popTracks .tr').dataset.list).tracks.length}`);
+      $('#popTracks .tr:nth-child(25) [data-act="play-row"]')?.click();
+      await wait(1500);
+      console.warn(`SELFTEST artistpop play: queue=${Player.queue.length} index=${Player.index}`);
+      Player.pause();
+      $('#popSec').scrollIntoView();
+      await wait(600);
+    } else if (extra === 'popular') {
+      console.warn(`SELFTEST popular: top=${$$('#topList .tr').length} shelves=${$$('#view .section').length} cards=${$$('#view .card').length} podium=${$$('.tp-card').length}`);
+      // сворачивание окна: всё, что рисует, должно встать, после разворота — продолжить
+      await silentPlay(0);
+      const vt = () => Viz._frames || 0;
+      document.querySelector('.wc-min').click();
+      await wait(1500);
+      const f0 = vt();
+      await wait(1000);
+      console.warn(`SELFTEST minimized: winHidden=${document.body.classList.contains('win-hidden')} vizHidden=${Viz.hidden} clipHidden=${Clip.hidden} framesWhileHidden=${vt() - f0} playing=${!Player.audio.paused}`);
+      document.querySelector('.wc-max').click();
+      await wait(1500);
+      const f1 = vt();
+      await wait(1000);
+      console.warn(`SELFTEST restored: winHidden=${document.body.classList.contains('win-hidden')} vizHidden=${Viz.hidden} frames=${vt() - f1}`);
+      Player.pause();
+      await wait(2500);
+      const f2 = vt();
+      await wait(1000);
+      console.warn(`SELFTEST paused: framesPerSec=${vt() - f2} (мини-визуализатор спит)`);
+      $('#scroller').scrollTop = 1180;
+      await wait(1200);
     } else if (extra === 'vizplay' || extra === 'eqplay') {
       await silentPlay(0);
       if (extra === 'eqplay') {

@@ -462,7 +462,7 @@ pub fn diag_match(dir: &std::path::Path) -> String {
 
 impl Sync {
     pub fn new() -> Self {
-        let http = reqwest::Client::builder().connect_timeout(Duration::from_secs(15)).timeout(Duration::from_secs(90)).build().expect("http");
+        let http = reqwest::Client::builder().user_agent(crate::zvuk::user_agent()).connect_timeout(Duration::from_secs(15)).timeout(Duration::from_secs(90)).build().expect("http");
         Self { http, refs: Mutex::new(HashMap::new()) }
     }
 

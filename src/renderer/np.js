@@ -146,8 +146,92 @@
     return { x: e.left + e.width / 2 - c.left, y: e.top + e.height / 2 - c.top, r: e.width / 2 };
   }
 
+  // ---------- Мини-эквалайзер (всплывает над кнопкой «Эквалайзер») ----------
+  const eqBox = document.getElementById('npEq');
+  const eqBtn = document.getElementById('npEqBtn');
+  let eqBuilt = false;
+  function eqBuild() {
+    const E = Views.eq;
+    eqBox.innerHTML = `<div class="ne-head"><b>Эквалайзер</b><span class="ne-state"></span><button class="switch" data-ne="on" title="Включить / выключить"></button></div>
+      <div class="ne-bands">${AudioFX.FREQS.map((f, i) => E.slider(i, AudioFX.LABELS[i])).join('')}</div>
+      <div class="ne-presets" data-ne="presets"></div>
+      <div class="ne-foot"><div class="ne-opt"><button class="switch" data-ne="comp"></button>Компрессор</div>
+        <button class="chip" data-ne="reset" title="Все полосы на 0 дБ">${icon('refresh')}Сброс</button>
+        <button class="chip" data-ne="full" title="Открыть полный эквалайзер">Подробнее${icon('chevronRight')}</button></div>`;
+    E.bind(eqBox.querySelector('.ne-bands'), eqSync);
+    const presets = eqBox.querySelector('.ne-presets');
+    // колёсико прокручивает ряд пресетов вбок
+    presets.addEventListener('wheel', (e) => {
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      e.preventDefault();
+      presets.scrollLeft += e.deltaY;
+    });
+    eqBox.addEventListener('click', (e) => {
+      const p = e.target.closest('[data-eqp]');
+      if (p) {
+        AudioFX.setPreset(p.dataset.eqp);
+        if (!AudioFX.eq.enabled) AudioFX.setEnabled(true);
+        return;
+      }
+      const b = e.target.closest('[data-ne]');
+      if (!b) return;
+      const k = b.dataset.ne;
+      if (k === 'on') AudioFX.setEnabled(!AudioFX.eq.enabled);
+      else if (k === 'comp') {
+        AudioFX.setCompressor(!AudioFX.eq.compressor);
+        if (AudioFX.eq.compressor && !AudioFX.eq.enabled) AudioFX.setEnabled(true);
+      } else if (k === 'reset') AudioFX.reset();
+      else if (k === 'full') {
+        NP.close();
+        App.navigate('equalizer');
+      }
+    });
+    eqBuilt = true;
+  }
+  let lastPreset = null;
+  function eqSync() {
+    if (!eqBuilt || eqBox.classList.contains('hidden')) return;
+    const e = AudioFX.eq;
+    eqBox.classList.toggle('off', !e.enabled);
+    eqBox.querySelector('[data-ne="on"]').classList.toggle('on', e.enabled);
+    eqBox.querySelector('[data-ne="comp"]').classList.toggle('on', e.compressor);
+    eqBox.querySelector('.ne-state').textContent = e.enabled ? (AudioFX.PRESETS[e.preset]?.name || 'Свой') : 'выключен';
+    Views.eq.paint(eqBox, '');
+    // ряд пресетов перерисовываем только при смене пресета — иначе сбрасывается прокрутка
+    if (lastPreset !== e.preset) {
+      lastPreset = e.preset;
+      const row = eqBox.querySelector('.ne-presets');
+      const x = row.scrollLeft;
+      row.innerHTML = Views.eq.presets();
+      row.scrollLeft = x;
+    }
+  }
+  window.addEventListener('zg:eq', eqSync);
+  // клик мимо панели закрывает её
+  document.addEventListener('pointerdown', (e) => {
+    if (!eqBox.classList.contains('hidden') && !e.target.closest('.np-eq-wrap')) NP.closeEq();
+  }, true);
+
   let openTimer = 0;
   const NP = {
+    get eqOpen() {
+      return !eqBox.classList.contains('hidden');
+    },
+    toggleEq() {
+      if (this.eqOpen) return this.closeEq();
+      if (!eqBuilt) eqBuild();
+      lastPreset = null;
+      eqBox.classList.remove('hidden');
+      eqBtn.classList.add('on');
+      eqSync();
+      const row = eqBox.querySelector('.ne-presets');
+      const on = row.querySelector('.chip.on');
+      row.scrollLeft = on ? on.offsetLeft - (row.clientWidth - on.offsetWidth) / 2 : 0;
+    },
+    closeEq() {
+      eqBox.classList.add('hidden');
+      eqBtn.classList.remove('on');
+    },
     get isOpen() {
       return !root.classList.contains('hidden');
     },
@@ -166,6 +250,7 @@
       openTimer = setTimeout(() => this.isOpen && document.body.classList.add('np-open'), 520);
     },
     close() {
+      this.closeEq();
       clearTimeout(openTimer);
       document.body.classList.remove('np-open');
       root.classList.add('closing');

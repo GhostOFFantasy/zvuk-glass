@@ -5,6 +5,18 @@ use std::sync::{Mutex, OnceLock};
 
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 use webview2_com::CapturePreviewCompletedHandler;
+
+/// Версия установленного движка WebView2 (это Edge той же версии), например «142.0.3595.80».
+pub fn webview_version() -> Option<String> {
+    let mut p = windows::core::PWSTR::null();
+    unsafe {
+        webview2_com::Microsoft::Web::WebView2::Win32::GetAvailableCoreWebView2BrowserVersionString(windows::core::PCWSTR::null(), &mut p).ok()?;
+    }
+    if p.is_null() {
+        return None;
+    }
+    Some(webview2_com::take_pwstr(p))
+}
 use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG;
 use windows::core::BOOL;
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, WPARAM};

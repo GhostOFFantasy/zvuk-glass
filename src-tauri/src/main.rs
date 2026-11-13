@@ -282,13 +282,20 @@ fn clipboard_read(app: S<'_>) -> String {
     arboard::Clipboard::new().and_then(|mut c| c.get_text()).unwrap_or_default()
 }
 
+/// Какие адреса можно открыть в обычном браузере: Zvuk, YouTube, GitHub (обновления) и консоль Google (ключ YouTube).
+/// Всё остальное — даже если страница (или клип) попробует перейти по ссылке — не открывается.
+fn external_ok(url: &str) -> bool {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"^https://((www\.)?zvuk\.com|console\.cloud\.google\.com|(www\.|m\.)?youtube\.com|youtu\.be|github\.com)/").unwrap()).is_match(url)
+}
+
 #[tauri::command]
 fn shell_open(url: String) -> bool {
-    let ok = regex::Regex::new(r"^https://((www\.)?zvuk\.com|console\.cloud\.google\.com|(www\.)?youtube\.com|github\.com)/").unwrap().is_match(&url);
+    let ok = external_ok(&url);
     if ok {
         let _ = open::that_detached(&url);
     }
-    true
+    ok
 }
 
 // ---------- Клипы ----------
@@ -439,9 +446,15 @@ fn debug_mouse(app: S<'_>, window: WebviewWindow, x: f64, y: f64, kind: Option<S
         return;
     }
     let kind = kind.unwrap_or_else(|| "mouseMoved".into());
-    let mut p = json!({ "type": kind, "x": x, "y": y, "pointerType": "mouse" });
-    if p["type"] != "mouseMoved" {
+    // «mouseDragged» — движение с зажатой левой кнопкой
+    let drag = kind == "mouseDragged";
+    let mut p = json!({ "type": if drag { "mouseMoved" } else { kind.as_str() }, "x": x, "y": y, "pointerType": "mouse" });
+    if drag {
         p["button"] = json!("left");
+        p["buttons"] = json!(1);
+    } else if p["type"] != "mouseMoved" {
+        p["button"] = json!("left");
+        p["buttons"] = json!(if p["type"] == "mousePressed" { 1 } else { 0 });
         p["clickCount"] = json!(1);
     }
     winx::cdp(&window, "Input.dispatchMouseEvent", p.to_string());
@@ -498,13 +511,13 @@ fn create_window(handle: &AppHandle, app: &Arc<App>) -> tauri::Result<WebviewWin
         .initialization_script(format!("window.__ZG_ARGS__ = {};", Value::Object(init)))
         .on_navigation(|url| {
             let local = url.host_str().map(|h| h == "tauri.localhost" || h.ends_with(".localhost")).unwrap_or(false);
-            if !local && matches!(url.scheme(), "http" | "https") {
+            if !local && external_ok(url.as_str()) {
                 let _ = open::that_detached(url.as_str());
             }
             local || url.scheme() == "about" || url.scheme() == "tauri"
         })
         .on_new_window(|url, _| {
-            if matches!(url.scheme(), "http" | "https") {
+            if external_ok(url.as_str()) {
                 let _ = open::that_detached(url.as_str());
             }
             tauri::webview::NewWindowResponse::Deny
@@ -525,12 +538,22 @@ fn create_window(handle: &AppHandle, app: &Arc<App>) -> tauri::Result<WebviewWin
     let _ = win.show();
     winx::install_hooks(handle, &win);
 
-    // Положение окна запоминается (как раньше)
-    if !shot {
+    // Положение окна запоминается (как раньше); свёрнутое окно — интерфейс останавливает
+    // визуализатор, клип и анимации (музыка играет дальше)
+    {
         let app2 = app.clone();
         let w2 = win.clone();
+        let hidden = std::sync::atomic::AtomicBool::new(false);
         win.on_window_event(move |e| match e {
-            WindowEvent::Moved(_) | WindowEvent::Resized(_) => save_bounds(&app2, &w2),
+            WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
+                if !shot {
+                    save_bounds(&app2, &w2);
+                }
+                let min = w2.is_minimized().unwrap_or(false);
+                if hidden.swap(min, std::sync::atomic::Ordering::SeqCst) != min {
+                    let _ = w2.emit("win:hidden", min);
+                }
+            }
             _ => {}
         });
     }
@@ -588,6 +611,10 @@ fn diag(dir: &std::path::Path) {
 fn main() {
     let args = Args::parse();
     let dir = data_dir(&args);
+    // запросы к Zvuk идут с User-Agent установленного движка WebView2 (до создания HTTP-клиентов)
+    if let Some(v) = winx::webview_version() {
+        zvuk::set_engine_version(&v);
+    }
     if std::env::args().any(|a| a == "--diag") {
         diag(&dir);
         return;
