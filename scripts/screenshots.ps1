@@ -19,7 +19,7 @@ $shots = [ordered]@{
   'artist'    = @('--route=artist:102622')
   'release'   = @('--route=release:19896779')
   'wave'      = @('--route=wave')
-  'np'        = @('--route=release:6233892', '--extra=np-hover')
+  'np'        = @('--route=release:6233892', '--extra=np-real')
   'nplyrics'  = @('--route=release:6233892', '--extra=np-lyrics')
   'queue'     = @('--route=release:19896779', '--extra=queue')
   'lyrics'    = @('--route=release:6233892', '--extra=lyrics')
@@ -41,6 +41,7 @@ $shots = [ordered]@{
   'npring'    = @('--route=release:6233892', '--extra=np-play-viz', '--vizstyle=ring')
   'perf'      = @('--route=artist:1457739', '--extra=perf')
   'cliptest'  = @('--route=visualizer', '--extra=cliptest')
+  'clipq'     = @('--route=visualizer', '--extra=clipq1080')
   'sbcollapse' = @('--route=artist:1457739', '--extra=sbcollapse')
   'sbexpand'  = @('--route=artist:1457739', '--extra=sbexpand')
 }

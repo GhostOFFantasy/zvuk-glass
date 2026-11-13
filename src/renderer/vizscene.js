@@ -60,6 +60,10 @@
       </div>
       ${st === 'ok' ? `<div class="vz-offset" title="Если клип опережает или отстаёт от музыки"><span>Сдвиг</span>
         <button class="btn small" data-vclip="minus">−1 с</button><b>${off > 0 ? '+' : ''}${off.toFixed(1)} с</b><button class="btn small" data-vclip="plus">+1 с</button></div>` : ''}
+      <div class="vz-q">
+        <div class="vz-q-head"><span>Качество клипа</span>${Clip.actualQuality ? `<small title="Что YouTube показывает сейчас">сейчас ${esc(Clip.actualQuality)}</small>` : ''}</div>
+        <div class="vz-q-opts">${Clip.QLIST.map(([id, label]) => `<button class="vz-qb${Clip.quality === id ? ' on' : ''}" data-vclipq="${id}">${label}</button>`).join('')}</div>
+      </div>
     </div>`;
   }
 
@@ -168,6 +172,15 @@
 
       panel.addEventListener('click', async (e) => {
         const s = settings();
+        const qb = e.target.closest('[data-vclipq]');
+        if (qb) {
+          if (qb.dataset.vclipq !== Clip.quality) {
+            Clip.setQuality(qb.dataset.vclipq);
+            toast(qb.dataset.vclipq === 'auto' ? 'Качество клипа: автоматически' : `Качество клипа: ${qb.textContent}`, { iconName: 'check', ms: 1600 });
+          }
+          renderPanel();
+          return;
+        }
         const cb = e.target.closest('[data-vclip]');
         if (cb) {
           const a = cb.dataset.vclip;

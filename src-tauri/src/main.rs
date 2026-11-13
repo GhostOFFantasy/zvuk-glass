@@ -411,6 +411,29 @@ fn screenshot_ready(app: S<'_>, window: WebviewWindow, delay: Option<u64>) {
     });
 }
 
+/// Служебно: сообщение интерфейса в вывод (только в режиме снимков).
+#[tauri::command]
+fn debug_log(app: S<'_>, msg: String) {
+    if app.args.screenshot.is_some() {
+        println!("LOG {msg}");
+    }
+}
+
+/// Служебно: настоящее движение мыши внутри окна (через DevTools-протокол), чтобы проверять :hover и т. п.
+#[tauri::command]
+fn debug_mouse(app: S<'_>, window: WebviewWindow, x: f64, y: f64, kind: Option<String>) {
+    if app.args.screenshot.is_none() {
+        return;
+    }
+    let kind = kind.unwrap_or_else(|| "mouseMoved".into());
+    let mut p = json!({ "type": kind, "x": x, "y": y, "pointerType": "mouse" });
+    if p["type"] != "mouseMoved" {
+        p["button"] = json!("left");
+        p["clickCount"] = json!(1);
+    }
+    winx::cdp(&window, "Input.dispatchMouseEvent", p.to_string());
+}
+
 // ---------- Окно ----------
 fn data_dir(args: &Args) -> PathBuf {
     if args.screenshot.is_some() {
@@ -637,6 +660,8 @@ fn main() {
             update_check,
             update_install,
             screenshot_ready,
+            debug_log,
+            debug_mouse,
         ])
         .setup(move |tapp| {
             let handle = tapp.handle().clone();

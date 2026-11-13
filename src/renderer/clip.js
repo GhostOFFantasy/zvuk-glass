@@ -2,8 +2,47 @@
 /* Официальный клип трека с YouTube на фоне визуализатора: поиск, встроенный плеер без звука, синхронизация с треком */
 (function () {
   const ORIGIN = 'https://www.youtube-nocookie.com';
-  const mounts = new Set(); // { box, iframe, videoId, ready, state, time, timeAt, lastSeek }
+  const mounts = new Set(); // { box, iframe, videoId, ready, state, time, timeAt, lastSeek, ro }
   const listeners = new Set();
+  // Качество клипа: высота кадра → код YouTube
+  const QUALITY = { 480: 'large', 720: 'hd720', 1080: 'hd1080', 1440: 'hd1440', 2160: 'hd2160' };
+  // Высота плеера для каждого качества (подобрано проверкой): для низких YouTube «округляет вверх»
+  // (плеер 480 px уже даёт 720p), поэтому плеер чуть меньше; для высоких — ровно по качеству
+  const FRAME = { 480: 420, 720: 600, 1080: 1080, 1440: 1440, 2160: 2160 };
+  const QNAME = { tiny: '144p', small: '240p', medium: '360p', large: '480p', hd720: '720p', hd1080: '1080p', hd1440: '1440p', hd2160: '4K', highres: '8K' };
+  const QLIST = [
+    ['auto', 'Авто'],
+    ['480', '480p'],
+    ['720', '720p'],
+    ['1080', '1080p'],
+    ['1440', '1440p'],
+    ['2160', '4K'],
+  ];
+
+  /**
+   * YouTube сам выбирает качество по размеру плеера на экране, а команду «поставь качество» давно игнорирует.
+   * Поэтому для выбранного качества делаем плеер ровно такого размера (в физических пикселях)
+   * и масштабируем его до размера фона. «Авто» — плеер размером с фон.
+   */
+  function fit(m) {
+    const f = m.iframe;
+    if (!f) return;
+    const q = Clip.quality;
+    if (q === 'auto') {
+      f.style.width = f.style.height = f.style.transform = '';
+      return;
+    }
+    const bw = m.box.clientWidth;
+    const bh = m.box.clientHeight;
+    if (!bw || !bh) return;
+    const dpr = window.devicePixelRatio || 1;
+    const h = (FRAME[q] || +q) / dpr;
+    const w = (h * 16) / 9;
+    const k = Math.max(bw / w, bh / h) * 1.24;
+    f.style.width = w.toFixed(1) + 'px';
+    f.style.height = h.toFixed(1) + 'px';
+    f.style.transform = `translate(-50%, -50%) scale(${k.toFixed(4)})`;
+  }
 
   const Clip = {
     trackId: null,
@@ -26,6 +65,24 @@
     },
     get offset() {
       return (this.entry && this.entry.offset) || 0;
+    },
+    QLIST,
+    /** Выбранное качество: 'auto' или высота кадра ('720', '1080', …). */
+    get quality() {
+      const q = App.settings.viz && App.settings.viz.clipQ;
+      return q && (q === 'auto' || QUALITY[q]) ? String(q) : 'auto';
+    },
+    /** Качество, которое YouTube сейчас реально показывает (например «1080p»). */
+    actualQuality: '',
+    setQuality(q) {
+      if (!App.settings.viz) App.settings.viz = {};
+      App.settings.viz.clipQ = q;
+      window.zvuk.settings.set({ viz: App.settings.viz });
+      this.actualQuality = '';
+      // новое качество применяется перезапуском плеера с того же места
+      for (const m of mounts) m.videoId = null;
+      this._applyVideo();
+      this._emit();
     },
     onChange(fn) {
       listeners.add(fn);
@@ -93,15 +150,19 @@
 
     // ---------- Встроенный плеер ----------
     attach(box) {
-      const m = { box, iframe: null, videoId: null, ready: false, state: -1, time: null, timeAt: 0, lastSeek: 0 };
+      const m = { box, iframe: null, videoId: null, ready: false, state: -1, time: null, timeAt: 0, lastSeek: 0, ro: null };
       mounts.add(m);
       box.classList.add('clip-box');
+      // размер фона меняется (окно, полноэкранный режим) — плеер подстраивается под выбранное качество
+      m.ro = new ResizeObserver(() => fit(m));
+      m.ro.observe(box);
       if (Player.current && this.trackId !== String(Player.current.id)) this.resolve();
       else this._applyVideo();
       startSync();
       return {
         detach: () => {
           mounts.delete(m);
+          m.ro.disconnect();
           if (m.iframe) m.iframe.remove();
           box.classList.remove('clip-box', 'clip-on');
         },
@@ -126,11 +187,13 @@
         m.iframe = null;
         if (!id) continue;
         const start = Math.max(0, Math.floor(Player.audio.currentTime + this.offset));
+        const vq = QUALITY[this.quality];
+        this.actualQuality = '';
         const f = document.createElement('iframe');
         f.className = 'clip-frame';
         f.allow = 'autoplay; encrypted-media';
         f.setAttribute('tabindex', '-1');
-        f.src = `${ORIGIN}/embed/${id}?autoplay=1&mute=1&controls=0&disablekb=1&fs=0&iv_load_policy=3&modestbranding=1&playsinline=1&rel=0&cc_load_policy=0&enablejsapi=1&start=${start}`;
+        f.src = `${ORIGIN}/embed/${id}?autoplay=1&mute=1&controls=0&disablekb=1&fs=0&iv_load_policy=3&modestbranding=1&playsinline=1&rel=0&cc_load_policy=0&enablejsapi=1&start=${start}${vq ? '&vq=' + vq : ''}`;
         f.addEventListener('load', () => {
           // подписка на события плеера (время, состояние)
           post(m, { event: 'listening', id: 1, channel: 'widget' });
@@ -138,6 +201,7 @@
         });
         m.box.appendChild(f);
         m.iframe = f;
+        fit(m);
       }
     },
   };
@@ -165,6 +229,12 @@
         cmd(m, 'mute');
         cmd(m, 'unloadModule', ['captions']); // без звука YouTube сам включает субтитры
         cmd(m, 'unloadModule', ['cc']);
+        // подсказка качества (новые версии плеера могут её игнорировать — главное делает размер плеера)
+        const vq = QUALITY[Clip.quality];
+        if (vq) {
+          cmd(m, 'setPlaybackQualityRange', [vq, vq]);
+          cmd(m, 'setPlaybackQuality', [vq]);
+        }
       }
     }
     if (d.event === 'onError') {
@@ -179,6 +249,10 @@
         m.timeAt = performance.now();
       }
       if (typeof info.playerState === 'number') m.state = info.playerState;
+      if (typeof info.playbackQuality === 'string' && QNAME[info.playbackQuality] && QNAME[info.playbackQuality] !== Clip.actualQuality) {
+        Clip.actualQuality = QNAME[info.playbackQuality];
+        Clip._emit();
+      }
     }
   });
 

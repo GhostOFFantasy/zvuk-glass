@@ -76,7 +76,25 @@
     setZoom: (f) => invoke('set_zoom', { factor: Number(f) || 1 }),
     openZvuk: (url) => invoke('shell_open', { url: String(url || '') }),
     screenshotReady: (delay) => invoke('screenshot_ready', { delay: typeof delay === 'number' ? Math.max(0, Math.round(delay)) : null }),
+    // служебные проверки (работают только в режиме снимков)
+    debug: {
+      log: (msg) => invoke('debug_log', { msg: String(msg) }).catch(() => {}),
+      mouse: (x, y, kind) => invoke('debug_mouse', { x, y, kind: kind || null }).catch(() => {}),
+    },
   };
+
+  // В режиме снимков предупреждения и ошибки интерфейса уходят в вывод приложения
+  if (window.__ZG_ARGS__ && window.__ZG_ARGS__.screenshot) {
+    for (const k of ['warn', 'error']) {
+      const orig = console[k].bind(console);
+      console[k] = (...a) => {
+        orig(...a);
+        window.zvuk.debug.log(`[${k}] ` + a.map((x) => (x instanceof Error ? x.message : typeof x === 'object' ? JSON.stringify(x) : String(x))).join(' '));
+      };
+    }
+    window.addEventListener('error', (e) => window.zvuk.debug.log('[error] ' + e.message));
+    window.addEventListener('unhandledrejection', (e) => window.zvuk.debug.log('[reject] ' + (e.reason && e.reason.message ? e.reason.message : e.reason)));
+  }
 
   // ---------- Окно без системной рамки: свои кнопки и перетаскивание ----------
   const win = (action) => invoke('win_action', { action });
