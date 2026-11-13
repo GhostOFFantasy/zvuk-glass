@@ -66,7 +66,10 @@ if (bump !== 'current') {
   else fail(`Непонятная версия «${bump}». Используйте patch, minor, major, current или x.y.z`);
 }
 const tag = 'v' + next;
-if (run('git', ['tag', '--list', tag])) fail(`Тег ${tag} уже существует — эта версия уже выпускалась.`);
+// тег уже есть: если он на текущем коммите — это повтор после неудачной публикации, продолжаем
+const tagExists = Boolean(run('git', ['tag', '--list', tag]));
+if (tagExists && run('git', ['rev-list', '-n', '1', tag]) !== run('git', ['rev-parse', 'HEAD']))
+  fail(`Тег ${tag} уже существует — эта версия уже выпускалась. Выберите другой номер.`);
 
 if (next !== cur) {
   step(`Версия ${cur} → ${next}`);
@@ -84,7 +87,7 @@ if (next !== cur) {
 } else step(`Выпускаем текущую версию ${cur}`);
 
 step('Отправляем код на GitHub');
-run('git', ['tag', tag]);
+if (!tagExists) run('git', ['tag', tag]);
 for (const ref of [branch, tag]) {
   if (spawnSync('git', ['push', 'origin', ref], { cwd: root, stdio: 'inherit' }).status !== 0) fail(`Не удалось отправить ${ref} на GitHub`);
 }
