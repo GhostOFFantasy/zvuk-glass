@@ -1609,7 +1609,36 @@
       NP.vizOn = extra.includes('viz');
       openNowPlaying();
       await wait(2200);
-      if (extra.includes('hover')) {
+      if (extra.includes('real')) {
+        // настоящая мышь: сначала мимо карточки, потом на её центр (как это делает человек); сначала «ранее», потом «далее»
+        for (const d of [-1, 1]) {
+          const side = [...$$('.cf-item')].find((x) => +x.dataset.qi === Player.index + d);
+          if (!side) {
+            console.warn(`SELFTEST nphover ${d}: нет карточки`);
+            continue;
+          }
+          const r = side.getBoundingClientRect();
+          const x = r.left + r.width / 2;
+          const y = r.top + r.height / 2;
+          await window.zvuk.debug.mouse(x, 20);
+          await wait(250);
+          for (let k = 1; k <= 8; k++) {
+            await window.zvuk.debug.mouse(x, 20 + ((y - 20) * k) / 8);
+            await wait(40);
+          }
+          // немного «поводить» внутри — проверка, что наведение не дёргается
+          for (let k = 0; k < 10; k++) {
+            await window.zvuk.debug.mouse(x + Math.sin(k) * r.width * 0.25, y + Math.cos(k) * r.height * 0.25);
+            await wait(50);
+          }
+          await window.zvuk.debug.mouse(x + r.width * 0.15, y - r.height * 0.15);
+          await wait(1200);
+          const hit = document.elementFromPoint(x, y);
+          const chain = [];
+          for (let e = hit; e && chain.length < 4; e = e.parentElement) chain.push(e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + (e.className && typeof e.className === 'string' ? '.' + e.className.trim().split(/\s+/).slice(0, 3).join('.') : ''));
+          console.warn(`SELFTEST nphover ${d > 0 ? 'next' : 'prev'}: hover=${side.classList.contains('hover')} matches=${side.matches(':hover')} card=${getComputedStyle(side.firstChild).transform.slice(0, 48)} hit=${chain.join(' < ')}`);
+        }
+      } else if (extra.includes('hover')) {
         const side = [...$$('.cf-item')].find((x) => +x.dataset.qi === Player.index + 1);
         if (side) {
           const r = side.getBoundingClientRect();
@@ -1693,6 +1722,21 @@
       const s = $('#sidebar').getBoundingClientRect();
       console.warn(`SELFTEST ${extra} mid: sidebar x=${Math.round(s.left)} w=${Math.round(s.width)} | main x=${Math.round(m.left)} w=${Math.round(m.width)}`);
       return window.zvuk.screenshotReady(0);
+    } else if (extra.startsWith('clipq')) {
+      // Клип в заданном качестве (clipq1080, clipq480, clipqauto)
+      App.settings.viz.bg = 'clip';
+      App.settings.viz.style = 'waves';
+      App.settings.viz.clipQ = extra.slice(5) || 'auto';
+      await silentPlay(0);
+      App.rerender();
+      await wait(1200);
+      await Clip.setLink('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+      await wait(12000);
+      const f = $('.clip-frame');
+      const box = $('.clip-box');
+      console.warn(`SELFTEST clipq: want=${Clip.quality} actual=${Clip.actualQuality || '?'} frame=${f ? f.clientWidth + 'x' + f.clientHeight : '-'} box=${box ? box.clientWidth + 'x' + box.clientHeight : '-'} dpr=${devicePixelRatio} visible=${box && box.classList.contains('clip-on')}`);
+      $('.vz-gear') && $('.vz-gear').click();
+      await wait(700);
     } else if (extra === 'cliptest') {
       // Клип по ссылке (без ключа) во вкладке визуализатора + проверка ключа-пустышки
       App.settings.viz.bg = 'clip';

@@ -197,6 +197,17 @@ pub fn capture_png(win: &WebviewWindow, out: std::path::PathBuf, done: impl FnOn
     }
 }
 
+/// Вызов метода DevTools-протокола WebView2 (служебные проверки: настоящие движения мыши и т. п.).
+pub fn cdp(win: &WebviewWindow, method: &'static str, params: String) {
+    let _ = win.with_webview(move |wv| unsafe {
+        let Ok(core) = wv.controller().CoreWebView2() else { return };
+        let m = windows::core::HSTRING::from(method);
+        let p = windows::core::HSTRING::from(params);
+        let handler = webview2_com::CallDevToolsProtocolMethodCompletedHandler::create(Box::new(|_res, _json| Ok(())));
+        let _ = core.CallDevToolsProtocolMethod(&m, &p, &handler);
+    });
+}
+
 pub fn main_window(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window("main")
 }
