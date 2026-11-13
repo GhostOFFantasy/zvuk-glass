@@ -40,6 +40,8 @@
 
   /** Автосинхронизация по звуку: переключатель и состояние. */
   function autoBlock() {
+    // на телефоне звук устройства слушать нельзя — подстройка по звуку есть только в Windows-версии
+    if (window.ZG_MOBILE) return '';
     const on = Clip.auto;
     const s = Clip.sync;
     const a = Clip.autoInfo;

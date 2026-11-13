@@ -8,6 +8,12 @@
   const T = window.__TAURI__;
   const invoke = T.core.invoke;
   const listen = T.event.listen;
+  // Android: своей рамки окна и перетаскивания нет, интерфейс — в мобильной раскладке (body.mobile)
+  const MOBILE = Boolean(window.__ZG_ARGS__ && window.__ZG_ARGS__.mobile);
+  window.ZG_MOBILE = MOBILE;
+  const markMobile = () => MOBILE && document.body.classList.add('mobile');
+  if (document.body) markMobile();
+  else document.addEventListener('DOMContentLoaded', markMobile);
 
   const toError = (e) => {
     const err = new Error((e && e.message) || String(e));
@@ -46,6 +52,8 @@
       thumbarIcons: (icons) => invoke('thumbar_icons', { icons }).catch(() => {}),
       appIcon: () => {}, // значок приложения теперь встроен при сборке
     },
+    /** Телефон: отступы системных панелей и клавиатуры { top, bottom, left, right, ime }. */
+    mobile: { insets: () => invoke('mobile_insets').catch(() => null) },
     /** Текст песни из LRCLIB: { text, synced, source } или null. */
     lyrics: {
       external: (t) =>
@@ -99,6 +107,7 @@
     debug: {
       log: (msg) => invoke('debug_log', { msg: String(msg) }).catch(() => {}),
       mouse: (x, y, kind) => invoke('debug_mouse', { x, y, kind: kind || null }).catch(() => {}),
+      touch: (x, y, kind) => invoke('debug_touch', { x, y, kind }).catch(() => {}),
     },
   };
 
@@ -132,7 +141,7 @@
   document.addEventListener(
     'mousedown',
     (e) => {
-      if (e.button !== 0 || !dragRegion(e.target)) return;
+      if (MOBILE || e.button !== 0 || !dragRegion(e.target)) return;
       e.preventDefault();
       if (e.detail === 2) win('toggleMaximize').then(setMax);
       else win('drag');
@@ -171,6 +180,7 @@
     });
     sync();
   }
+  if (MOBILE) return;
   if (document.body) mountControls();
   else document.addEventListener('DOMContentLoaded', mountControls);
 })();

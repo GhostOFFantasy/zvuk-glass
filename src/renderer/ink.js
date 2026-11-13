@@ -178,6 +178,8 @@
 
   const Ink = {
     start() {
+      // снимок кадра окна есть только в WebView2 (Windows)
+      if (window.ZG_MOBILE) return;
       if (!timer) timer = setInterval(measure, PERIOD);
     },
     stop() {

@@ -49,7 +49,7 @@ fn close(a: &str, b: &str) -> bool {
 
 impl Lyrics {
     pub fn new() -> Self {
-        let http = reqwest::Client::builder()
+        let http = crate::net::builder()
             .user_agent(concat!("ZvukGlass/", env!("CARGO_PKG_VERSION")))
             .timeout(Duration::from_secs(10))
             .build()

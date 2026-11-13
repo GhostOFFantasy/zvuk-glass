@@ -49,7 +49,7 @@ pub struct Streams {
 
 impl Streams {
     pub fn new() -> Self {
-        let http = reqwest::Client::builder().user_agent(crate::zvuk::user_agent()).connect_timeout(Duration::from_secs(15)).build().expect("http client");
+        let http = crate::net::builder().user_agent(crate::zvuk::user_agent()).connect_timeout(Duration::from_secs(15)).build().expect("http client");
         Self { http, map: Mutex::new(HashMap::new()), next: Mutex::new(1) }
     }
 

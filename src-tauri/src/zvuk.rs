@@ -12,7 +12,11 @@ use serde_json::{json, Map, Value};
 
 const GRAPHQL_URL: &str = "https://zvuk.com/api/v1/graphql";
 const TINY_URL: &str = "https://zvuk.com/api/tiny";
+#[cfg(not(target_os = "android"))]
 const DEFAULT_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36 Edg/142.0.0.0";
+/// На телефоне — как мобильный браузер на движке Chromium (тот же, что у Android WebView)
+#[cfg(target_os = "android")]
+const DEFAULT_UA: &str = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Mobile Safari/537.36";
 static UA: OnceLock<String> = OnceLock::new();
 
 /// User-Agent по версии встроенного в Windows движка WebView2 (это Edge той же версии): приложение
@@ -225,7 +229,7 @@ pub struct Profile {
 
 impl ZvukClient {
     pub fn new() -> Self {
-        let http = reqwest::Client::builder()
+        let http = crate::net::builder()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(20))
             .build()

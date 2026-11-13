@@ -27,7 +27,8 @@
     App.settings = await window.zvuk.settings.get();
     App.settings.viz = { style: 'bars', color: 'accent', sensitivity: 1, dim: 35, pulse: true, syncVideo: true, ...(App.settings.viz || {}) };
     App.settings.profileLocal = App.settings.profileLocal || {};
-    document.body.classList.toggle('liquid-on', App.settings.liquidGlass !== false);
+    // эффект преломления (SVG-фильтр) на телефоне слишком тяжёл — там только размытое стекло
+    document.body.classList.toggle('liquid-on', App.settings.liquidGlass !== false && !window.ZG_MOBILE);
     Custom.init(App.settings);
     sendIcons();
     initUpdates();
@@ -68,8 +69,8 @@
     el.id = 'updBanner';
     el.className = 'upd-banner glass-menu';
     el.innerHTML = `<div class="upd-ic">${icon('sparkle')}</div>
-      <div class="upd-tx"><b>Готово обновление ${esc(st.version || '')}</b><span>Установится само при выходе — или прямо сейчас</span></div>
-      <button class="btn small primary" data-upd="install">${icon('refresh')}Перезапустить</button>
+      <div class="upd-tx"><b>Готово обновление ${esc(st.version || '')}</b><span>${window.ZG_MOBILE ? 'Нажмите «Установить» и подтвердите в окне Android' : 'Установится само при выходе — или прямо сейчас'}</span></div>
+      <button class="btn small primary" data-upd="install">${icon('refresh')}${window.ZG_MOBILE ? 'Установить' : 'Перезапустить'}</button>
       <button class="upd-x" data-upd="later" title="Позже">${icon('close')}</button>`;
     el.addEventListener('click', (e) => {
       const b = e.target.closest('[data-upd]');
@@ -157,7 +158,8 @@
     Custom.setTrackTheme(null);
     // Мини-визуализатор на фоне панели плеера
     // 30 кадров/с, обычная чёткость и мягкий стиль — фоновой полоске больше не нужно
-    App.miniViz = Viz.attach($('#miniViz'), { style: 'bars', soft: true, barH: 0.9, bars: 72, maxDpr: 1, fps: 30, glow: false, idle: false, sensitivity: 0.9 });
+    // на телефоне мини-плеер без визуализатора — холст не рисуем вовсе (экономия батареи)
+    if (!window.ZG_MOBILE) App.miniViz = Viz.attach($('#miniViz'), { style: 'bars', soft: true, barH: 0.9, bars: 72, maxDpr: 1, fps: 30, glow: false, idle: false, sensitivity: 0.9 });
     updateQualityBadge();
     const saveEq = debounce((eq) => window.zvuk.settings.set({ eq }), 300);
     AudioFX.onChange = (eq) => {
@@ -467,6 +469,9 @@
   function updateNav() {
     const v = App.route?.view;
     $$('.sidebar .nav-item').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
+    // телефон: страницы коллекции и настройки — вкладка «Моё»
+    const tab = ['liked', 'albums', 'artists', 'playlists', 'history', 'playlist', 'settings', 'equalizer', 'visualizer'].includes(v) ? 'library' : v;
+    $$('.m-nav .m-tab').forEach((b) => b.classList.toggle('active', b.dataset.view === tab));
     moveIndicator();
     // список плейлистов не перерисовываем — только отмечаем открытый
     const pid = v === 'playlist' ? String(App.route.params.id) : null;
@@ -687,6 +692,10 @@
   // ======================================================================
   let seekUI, npSeekUI, volUI, npVolUI;
   function bindPlayer() {
+    // Телефон: мини-плеер внизу — по нажатию на него (кроме кнопок) открывается полноэкранный плеер
+    $('#player').addEventListener('click', (e) => {
+      if (window.ZG_MOBILE && !e.target.closest('button, .slider, a, .lnk')) openNowPlaying();
+    });
     seekUI = slider($('#seek'), {
       onInput: (v) => {
         const d = Player.audio.duration || Player.current?.duration || 0;
@@ -789,7 +798,16 @@
     });
     Player.on('empty', () => startMyWave());
     Player.on('loading', (on) => document.body.classList.toggle('loading', on));
-    window.zvuk.player.onCommand((cmd) => (cmd === 'toggle' ? Player.toggle() : cmd === 'next' ? Player.next() : Player.prev()));
+    // Кнопки на миниатюре (Windows), в уведомлении, на экране блокировки и гарнитуре (Android)
+    window.zvuk.player.onCommand((cmd) => {
+      cmd = String(cmd || '');
+      if (cmd === 'toggle') Player.toggle();
+      else if (cmd === 'next') Player.next();
+      else if (cmd === 'prev') Player.prev();
+      else if (cmd === 'play') !Player.playing && Player.toggle();
+      else if (cmd === 'pause') Player.playing && Player.toggle();
+      else if (cmd.startsWith('seek:')) Player.seek(parseFloat(cmd.slice(5)) || 0);
+    });
     // Свёрнутое окно ничего не рисует: визуализатор, клип, видео-обои и анимации встают, музыка играет
     window.zvuk.onHidden((hidden) => {
       document.body.classList.toggle('win-hidden', hidden);
@@ -881,6 +899,20 @@
     $('#plQueueBtn').classList.remove('on');
     $('#plLyricsBtn').classList.remove('on');
   }
+  // для мобильного модуля (жесты и системная кнопка «Назад»): mobile.js
+  Object.assign(App, {
+    openPanel: (n) => openPanel(n),
+    closePanel: () => closePanel(),
+    openNowPlaying: () => openNowPlaying(),
+    closeNowPlaying: () => closeNowPlaying(),
+    goBack: () => goBack(),
+    hideSuggest: () => hideSuggest(),
+    /** Меню трека у строки списка — для долгого нажатия пальцем. */
+    rowMenu(row, x, y) {
+      const l = UI.Lists.get(row.dataset.list);
+      trackMenu(trackFromRow(row), x, y, { playlistId: l?.source?.playlistId, queueIdx: row.dataset.queueIdx != null ? +row.dataset.queueIdx : null });
+    },
+  });
 
   function renderQueue() {
     const body = $('#spBody');
@@ -1151,6 +1183,7 @@
       }
       case 'current-menu': {
         const r = el.getBoundingClientRect();
+        // (ниже — меню текущего трека)
         trackMenu(Player.current, r.left, r.top - 380);
         break;
       }
@@ -1851,6 +1884,66 @@
         await wait(1500);
         report('clip');
       }
+    } else if (extra === 'mgest') {
+      // Жесты пальцем (в узком окне с мобильным интерфейсом): свайпы, долгое нажатие, «Назад»
+      const T = window.zvuk.debug.touch;
+      const swipe = async (x0, y0, x1, y1, steps = 8, ms = 18) => {
+        await T(x0, y0, 'touchStart');
+        for (let k = 1; k <= steps; k++) {
+          await T(x0 + ((x1 - x0) * k) / steps, y0 + ((y1 - y0) * k) / steps, 'touchMove');
+          await wait(ms);
+        }
+        await T(x1, y1, 'touchEnd');
+        await wait(700);
+      };
+      const l = firstList();
+      if (l) Player.playList(l.tracks, 1, l.source);
+      AudioFX.setVolume(0);
+      Player._applyVolume = () => AudioFX.setVolume(0);
+      await wait(2500);
+      // долгое нажатие на строку трека
+      const row = $$('.tr')[3];
+      const rr = row.getBoundingClientRect();
+      await T(rr.left + rr.width / 2, rr.top + rr.height / 2, 'touchStart');
+      await wait(650);
+      await T(rr.left + rr.width / 2, rr.top + rr.height / 2, 'touchEnd');
+      await wait(400);
+      const menu = $('#menuLayer').children.length;
+      const backMenu = window.ZG_back();
+      console.warn(`SELFTEST mgest longpress: menu=${menu} backClosed=${backMenu && !$('#menuLayer').children.length}`);
+      // мини-плеер: вверх — открыть плеер
+      const pb = $('#player').getBoundingClientRect();
+      await swipe(pb.left + pb.width * 0.4, pb.top + pb.height / 2, pb.left + pb.width * 0.4, pb.top - 120);
+      await wait(800);
+      console.warn(`SELFTEST mgest miniUp: npOpen=${NP.isOpen}`);
+      // обложка: влево — следующий трек
+      const i0 = Player.index;
+      const cov = $('.cf-item.cur').getBoundingClientRect();
+      await swipe(cov.left + cov.width * 0.8, cov.top + cov.height / 2, cov.left + cov.width * 0.1, cov.top + cov.height / 2);
+      await wait(600);
+      const i1 = Player.index;
+      await swipe(cov.left + cov.width * 0.2, cov.top + cov.height / 2, cov.left + cov.width * 0.95, cov.top + cov.height / 2);
+      await wait(600);
+      console.warn(`SELFTEST mgest cover: next ${i0}->${i1} prev ->${Player.index}`);
+      // вниз — свернуть плеер
+      await swipe(cov.left + cov.width / 2, cov.top + 20, cov.left + cov.width / 2, cov.top + 320, 10, 16);
+      await wait(900);
+      console.warn(`SELFTEST mgest npDown: npOpen=${NP.isOpen}`);
+      // мини-плеер: влево — следующий
+      const j0 = Player.index;
+      await swipe(pb.left + pb.width * 0.7, pb.top + pb.height / 2, pb.left + pb.width * 0.15, pb.top + pb.height / 2);
+      await wait(500);
+      console.warn(`SELFTEST mgest miniLeft: ${j0}->${Player.index} npOpen=${NP.isOpen}`);
+      // очередь: открыть, потянуть шапку вниз — закрыть; «Назад» на странице — к главной
+      App.openPanel('queue');
+      await wait(600);
+      const tabs = $('.sp-tabs').getBoundingClientRect();
+      await swipe(tabs.left + tabs.width * 0.4, tabs.top + 10, tabs.left + tabs.width * 0.4, tabs.top + 300);
+      await wait(600);
+      const backNav = window.ZG_back();
+      await wait(800);
+      console.warn(`SELFTEST mgest sheet: panel=${App.panel} back=${backNav} view=${App.route.view} backAtHome=${window.ZG_back()}`);
+      Player.pause();
     } else if (extra === 'lyrext') {
       // Тексты: сколько треков чарта без синхронизированного текста в Zvuk и сколько из них нашлось в LRCLIB
       const pop = await api('popular');

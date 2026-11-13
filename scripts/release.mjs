@@ -31,6 +31,10 @@ const REPO = 'zvuk-glass';
 const args = process.argv.slice(2);
 const notesAt = args.indexOf('--notes');
 const notesArg = notesAt >= 0 ? args.splice(notesAt, 2)[1] || '' : '';
+// --no-android — выпустить только Windows-версию
+const noAndroidAt = args.indexOf('--no-android');
+const withAndroid = noAndroidAt < 0;
+if (!withAndroid) args.splice(noAndroidAt, 1);
 const bump = args[0] || 'patch';
 
 const fail = (msg) => {
@@ -150,12 +154,24 @@ writeFileSync(
   `version: ${next}\nfiles:\n  - url: ${setupName}\n    sha512: ${sha512}\n    size: ${size}\npath: ${setupName}\nsha512: ${sha512}\nreleaseDate: '${pubDate}'\n`
 );
 
+// ---------- Android ----------
+// Постоянное имя файла: установленные Android-версии качают …/releases/latest/download/Zvuk-Glass-Android.apk
+const apkName = 'Zvuk-Glass-Android.apk';
+if (withAndroid) {
+  step('Собираем Android-версию (APK, несколько минут)');
+  const a = spawnSync(process.execPath, [join(root, 'scripts', 'android.mjs'), '--release'], { cwd: root, stdio: 'inherit', env: withPath(process.env) });
+  const builtApk = join(dist, 'android', `Zvuk-Glass-${next}.apk`);
+  if (a.status !== 0 || !existsSync(builtApk))
+    fail('Сборка Android-версии не удалась (см. вывод выше). Черновик релиза остался — после исправления: npm run release -- current (или --no-android)');
+  copyFileSync(builtApk, join(dist, apkName));
+}
+
 step('Загружаем файлы в релиз');
-const files = [setup, join(dist, 'latest.json'), join(dist, 'latest.yml')];
+const files = [setup, join(dist, 'latest.json'), join(dist, 'latest.yml'), ...(withAndroid ? [join(dist, apkName)] : [])];
 if (spawnSync(GH, ['release', 'upload', tag, ...R, '--clobber', ...files], { cwd: root, stdio: 'inherit', ...ghEnv }).status !== 0)
   fail('Не удалось загрузить файлы. Черновик остался — запустите: npm run release -- current');
 const assets = JSON.parse(run(GH, ['release', 'view', tag, ...R, '--json', 'assets'], ghEnv)).assets.map((a) => a.name);
-for (const need of [setupName, 'latest.json', 'latest.yml']) if (!assets.includes(need)) fail(`В черновике ${tag} нет файла ${need}`);
+for (const need of [setupName, 'latest.json', 'latest.yml', ...(withAndroid ? [apkName] : [])]) if (!assets.includes(need)) fail(`В черновике ${tag} нет файла ${need}`);
 
 step('Публикуем релиз');
 run(GH, ['release', 'edit', tag, ...R, '--draft=false', '--latest', '--notes', notes], ghEnv);

@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
   <meta http-equiv="Content-Security-Policy"
     content="default-src 'self'; img-src 'self' data: blob: http://zgm.localhost https://zvuk.com https://*.zvuk.com https://zvooq.com https://*.zvooq.com https://*.sbercloud.ru https://i.ytimg.com; media-src blob: http://zgs.localhost http://zgm.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost; font-src 'self' data:; frame-src https://www.youtube-nocookie.com; object-src 'none'; base-uri 'none'" />
   <title>Zvuk Glass</title>
@@ -101,6 +102,15 @@
       <div class="sp-body" id="spBody"></div>
     </aside>
 
+    <!-- Телефон: нижняя навигация (на компьютере скрыта) -->
+    <nav class="m-nav glass panel" id="mNav">
+      <button class="m-tab" data-act="nav" data-view="home"><span class="i" data-icon="home"></span><span>Главная</span></button>
+      <button class="m-tab" data-act="nav" data-view="search"><span class="i" data-icon="search"></span><span>Поиск</span></button>
+      <button class="m-tab" data-act="nav" data-view="popular"><span class="i" data-icon="fire"></span><span>Популярное</span></button>
+      <button class="m-tab" data-act="nav" data-view="wave"><span class="i" data-icon="wave"></span><span>Волна</span></button>
+      <button class="m-tab" data-act="nav" data-view="library"><span class="i" data-icon="heartFill"></span><span>Моё</span></button>
+    </nav>
+
     <footer class="player glass panel liquid" id="player">
       <canvas class="mini-viz" id="miniViz"></canvas>
       <div class="pl-left">
@@ -193,7 +203,7 @@
         </li>
         <li>
           <span class="num">2</span>
-          <div class="st"><b>Откройте страницу профиля</b><span>и скопируйте всё (Ctrl+A, Ctrl+C)</span></div>
+          <div class="st"><b>Откройте страницу профиля</b><span data-m="выделите весь текст и скопируйте">и скопируйте всё (Ctrl+A, Ctrl+C)</span></div>
           <button class="btn small" data-act="open-zvuk" data-url="https://zvuk.com/api/tiny/profile">Открыть</button>
         </li>
         <li>
@@ -207,7 +217,7 @@
         <input class="input" id="tokenInput" type="password" placeholder="Токен Zvuk или текст страницы профиля" autocomplete="off" spellcheck="false" />
         <button class="btn" type="submit">Войти</button>
       </form>
-      <p class="muted small" style="margin:14px 0 0">Токен хранится только на этом компьютере в зашифрованном виде. Пароль от Zvuk приложению не нужен.</p>
+      <p class="muted small" style="margin:14px 0 0" data-m="Токен хранится только на этом телефоне, зашифрованный ключом из Android Keystore. Пароль от Zvuk приложению не нужен.">Токен хранится только на этом компьютере в зашифрованном виде. Пароль от Zvuk приложению не нужен.</p>
       <div class="login-error hidden" id="loginError"></div>
     </div>
   </section>
@@ -231,5 +241,6 @@
   <script src="views.js"></script>
   <script src="np.js"></script>
   <script src="app.js"></script>
+  <script src="mobile.js"></script>
 </body>
 </html>
