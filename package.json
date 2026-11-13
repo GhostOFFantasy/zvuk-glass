@@ -1,0 +1,72 @@
+{
+  "name": "zvuk-glass",
+  "productName": "Zvuk Glass",
+  "version": "1.0.0",
+  "description": "Неофициальный десктопный плеер для Zvuk (zvuk.com) в стиле «жидкого стекла»",
+  "author": "GhostOFFantasy",
+  "homepage": "https://github.com/GhostOFFantasy/zvuk-glass",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GhostOFFantasy/zvuk-glass.git"
+  },
+  "main": "src/main/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test:api": "node scripts/test-api.mjs",
+    "screenshot": "electron . --screenshot",
+    "dist": "electron-builder --win --publish never",
+    "release": "node scripts/release.mjs"
+  },
+  "build": {
+    "appId": "com.zvukglass.app",
+    "productName": "Zvuk Glass",
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "artifactName": "Zvuk-Glass-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Zvuk Glass",
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "GhostOFFantasy",
+        "repo": "zvuk-glass",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "devDependencies": {
+    "electron": "44.10.0",
+    "electron-builder": "^26.18.1"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.12"
+  }
+}
