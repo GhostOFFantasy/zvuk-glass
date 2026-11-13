@@ -92,23 +92,32 @@ for (const ref of [branch, tag]) {
   if (spawnSync('git', ['push', 'origin', ref], { cwd: root, stdio: 'inherit' }).status !== 0) fail(`Не удалось отправить ${ref} на GitHub`);
 }
 
-step('Собираем установщик и публикуем релиз (пара минут)');
+// Релиз создаём заранее черновиком: иначе сборщик загружает файлы параллельно
+// и может создать два релиза на один тег. Черновик не виден приложениям, пока не опубликован.
+const repo = pkg.build.publish[0];
+const R = ['-R', `${repo.owner}/${repo.repo}`];
+const ghEnv = { env: { ...process.env, GH_TOKEN: token } };
+let existing = null;
+try {
+  existing = JSON.parse(run(GH, ['release', 'view', tag, ...R, '--json', 'isDraft'], ghEnv));
+} catch {}
+if (existing && !existing.isDraft) fail(`Релиз ${tag} уже опубликован на GitHub. Выберите другой номер версии.`);
+if (!existing) run(GH, ['release', 'create', tag, ...R, '--draft', '--verify-tag', '--title', tag, '--notes', notes || `Zvuk Glass ${next}`], ghEnv);
+
+step('Собираем установщик и загружаем его в релиз (пара минут)');
 const cli = join(root, 'node_modules', 'electron-builder', 'cli.js');
 const r = spawnSync(process.execPath, [cli, '--win', '--publish', 'always'], {
   cwd: root,
   stdio: 'inherit',
   env: { ...process.env, GH_TOKEN: token },
 });
-if (r.status !== 0) fail('Сборка или публикация не удалась (см. вывод выше). Тег уже отправлен — после исправления запустите: npm run release -- current');
+if (r.status !== 0) fail('Сборка или загрузка не удалась (см. вывод выше). Черновик релиза остался — после исправления запустите: npm run release -- current');
 
-if (notes) {
-  try {
-    run(GH, ['release', 'edit', tag, '--notes', notes], { env: { ...process.env, GH_TOKEN: token } });
-  } catch {
-    console.warn('Не удалось добавить описание к релизу — его можно дописать на GitHub.');
-  }
-}
+const assets = JSON.parse(run(GH, ['release', 'view', tag, ...R, '--json', 'assets'], ghEnv)).assets.map((a) => a.name);
+if (!assets.includes('latest.yml') || !assets.some((n) => n.endsWith('.exe'))) fail(`В черновике ${tag} не хватает файлов: ${assets.join(', ') || 'пусто'}`);
 
-const repo = pkg.build.publish[0];
+step('Публикуем релиз');
+run(GH, ['release', 'edit', tag, ...R, '--draft=false', '--latest', ...(notes ? ['--notes', notes] : [])], ghEnv);
+
 console.log(`\n✔ Готово: ${tag} опубликован — https://github.com/${repo.owner}/${repo.repo}/releases/tag/${tag}`);
 console.log('  Установленные копии приложения скачают обновление в течение нескольких часов (или сразу — «Настройки → О программе → Проверить обновления»).');

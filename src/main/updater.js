@@ -16,6 +16,7 @@ let timer = null;
 
 function send(patch) {
   status = { ...patch, current: app.getVersion(), packaged: app.isPackaged };
+  if (testMode && (patch.state !== 'downloading' || patch.percent % 25 === 0)) console.log('UPDATE', JSON.stringify(status));
   const w = getWin();
   if (w && !w.isDestroyed()) w.webContents.send('update:status', status);
 }
@@ -29,7 +30,8 @@ function load() {
     return null;
   }
   updater.autoDownload = true;
-  updater.autoInstallOnAppQuit = true;
+  // в служебной проверке обновление только скачивается и никогда не устанавливается
+  updater.autoInstallOnAppQuit = !testMode;
   updater.allowPrerelease = false;
   updater.logger = null;
   updater.on('checking-for-update', () => send({ state: 'checking' }));
@@ -64,12 +66,14 @@ async function check() {
   return status;
 }
 
-function init(winGetter, { enabled = true, firstCheckMs = FIRST_CHECK_MS } = {}) {
+let testMode = false;
+function init(winGetter, { enabled = true, firstCheckMs = FIRST_CHECK_MS, test = false } = {}) {
   getWin = winGetter;
+  testMode = test;
   ipcMain.handle('update:state', () => ({ ...status, current: app.getVersion(), packaged: app.isPackaged }));
   ipcMain.handle('update:check', () => check());
   ipcMain.handle('update:install', () => {
-    if (!updater || status.state !== 'ready') return false;
+    if (!updater || status.state !== 'ready' || testMode) return false;
     // тихая установка и сразу запуск новой версии
     setImmediate(() => updater.quitAndInstall(true, true));
     return true;

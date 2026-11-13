@@ -58,7 +58,7 @@
         "provider": "github",
         "owner": "GhostOFFantasy",
         "repo": "zvuk-glass",
-        "releaseType": "release"
+        "releaseType": "draft"
       }
     ]
   },

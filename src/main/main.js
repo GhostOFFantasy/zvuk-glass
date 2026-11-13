@@ -322,7 +322,7 @@ function createWindow() {
     setTimeout(() => {
       console.log('SCREENSHOT_TIMEOUT');
       app.quit();
-    }, 60000);
+    }, argValue('updtest') ? 300000 : 60000);
   }
 }
 
@@ -509,7 +509,8 @@ app.whenReady().then(async () => {
   });
   registerIpc();
   // в режиме снимков обновления не проверяются (кроме служебной проверки самого обновления)
-  Updater.init(() => win, { enabled: !SCREENSHOT || Boolean(argValue('updtest')), firstCheckMs: SCREENSHOT ? 500 : undefined });
+  const updTest = Boolean(SCREENSHOT && argValue('updtest'));
+  Updater.init(() => win, { enabled: !SCREENSHOT || updTest, firstCheckMs: SCREENSHOT ? 500 : undefined, test: updTest });
   await initAuth().catch((e) => console.error('auth init failed', e));
   createWindow();
 });
