@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; img-src 'self' https: data: blob: zg-media:; media-src https: blob: zg-media:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https:; font-src 'self' data:; frame-src https://www.youtube-nocookie.com" />
+  <title>Zvuk Glass</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Фон: размытая обложка / свои обои / видео / градиент + цветные пятна -->
+  <div id="bg" aria-hidden="true">
+    <div class="bg-art" id="bgArtA"></div>
+    <div class="bg-art" id="bgArtB"></div>
+    <div class="bg-wall" id="bgWall"></div>
+    <video class="bg-wall" id="bgVideo" muted loop playsinline></video>
+    <div class="blob b1"></div>
+    <div class="blob b2"></div>
+    <div class="blob b3"></div>
+    <div class="bg-dim"></div>
+    <div class="bg-grain"></div>
+    <div class="bg-vignette"></div>
+  </div>
+
+  <!-- SVG-фильтр преломления для эффекта «жидкого стекла» -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <filter id="liquid" x="0%" y="0%" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.006 0.009" numOctaves="2" seed="11" result="noise" />
+      <feGaussianBlur in="noise" stdDeviation="3" result="soft" />
+      <feDisplacementMap in="SourceGraphic" in2="soft" scale="46" xChannelSelector="R" yChannelSelector="G" result="disp" />
+      <feGaussianBlur in="disp" stdDeviation="14" />
+    </filter>
+  </svg>
+
+  <div id="app" class="hidden">
+    <header class="titlebar">
+      <div class="brand">
+        <div class="brand-mark"></div>
+        <span>Zvuk&nbsp;Glass</span>
+      </div>
+      <div class="tb-nav">
+        <button class="icon-btn glass-btn" data-act="back" title="Назад (Alt+←)" id="btnBack"><span class="i" data-icon="chevronLeft"></span></button>
+        <button class="icon-btn glass-btn" data-act="forward" title="Вперёд (Alt+→)" id="btnFwd"><span class="i" data-icon="chevronRight"></span></button>
+      </div>
+      <label class="search-pill glass" id="searchPill">
+        <span class="i" data-icon="search"></span>
+        <input id="searchInput" type="search" placeholder="Треки, альбомы, исполнители…" autocomplete="off" spellcheck="false" />
+        <kbd>Ctrl K</kbd>
+      </label>
+      <div class="tb-right">
+        <button class="profile-chip glass" data-act="nav" data-view="settings" id="profileChip"></button>
+      </div>
+    </header>
+
+    <aside class="sidebar glass panel" id="sidebar">
+      <div class="nav-indicator" id="navIndicator"></div>
+      <nav class="nav" id="mainNav">
+        <button class="nav-item" data-act="nav" data-view="home" title="Главная"><span class="i" data-icon="home"></span><span class="lbl">Главная</span></button>
+        <button class="nav-item" data-act="nav" data-view="wave" title="Моя волна"><span class="i" data-icon="wave"></span><span class="lbl">Моя волна</span></button>
+        <button class="nav-item" data-act="nav" data-view="search" title="Поиск"><span class="i" data-icon="search"></span><span class="lbl">Поиск</span></button>
+        <button class="nav-item" data-act="nav" data-view="visualizer" title="Визуализатор"><span class="i" data-icon="viz"></span><span class="lbl">Визуализатор</span></button>
+        <button class="nav-item" data-act="nav" data-view="equalizer" title="Эквалайзер"><span class="i" data-icon="eq"></span><span class="lbl">Эквалайзер</span></button>
+      </nav>
+      <div class="nav-section"><span class="lbl">Моя музыка</span>
+        <button class="icon-btn small sec-toggle" data-act="sec-toggle" data-sec="lib" title="Свернуть / развернуть"><span class="i" data-icon="chevronDown"></span></button>
+      </div>
+      <div class="sec-body" data-sec-body="lib">
+      <nav class="nav" id="libNav">
+        <button class="nav-item" data-act="nav" data-view="liked" title="Любимые треки"><span class="i heart-grad" data-icon="heartFill"></span><span class="lbl">Любимые треки</span></button>
+        <button class="nav-item" data-act="nav" data-view="albums" title="Альбомы"><span class="i" data-icon="album"></span><span class="lbl">Альбомы</span></button>
+        <button class="nav-item" data-act="nav" data-view="artists" title="Исполнители"><span class="i" data-icon="mic"></span><span class="lbl">Исполнители</span></button>
+        <button class="nav-item" data-act="nav" data-view="playlists" title="Плейлисты"><span class="i" data-icon="playlist"></span><span class="lbl">Плейлисты</span></button>
+        <button class="nav-item" data-act="nav" data-view="history" title="История"><span class="i" data-icon="clock"></span><span class="lbl">История</span></button>
+      </nav>
+      </div>
+      <div class="nav-section with-btn"><span class="lbl">Плейлисты</span>
+        <div class="sec-btns">
+          <button class="icon-btn small" data-act="create-playlist" title="Новый плейлист"><span class="i" data-icon="plus"></span></button>
+          <button class="icon-btn small sec-toggle" data-act="sec-toggle" data-sec="pl" title="Свернуть / развернуть"><span class="i" data-icon="chevronDown"></span></button>
+        </div>
+      </div>
+      <div class="side-playlists" id="sidePlaylists" data-sec-body="pl"></div>
+      <button class="sb-toggle" data-act="toggle-compact" id="sbToggle" title="Свернуть панель"><span class="i" data-icon="chevronsLeft"></span><span class="lbl">Свернуть панель</span></button>
+    </aside>
+
+    <main class="main glass panel" id="main">
+      <div class="scroller" id="scroller">
+        <div class="view" id="view"></div>
+      </div>
+    </main>
+
+    <aside class="side-panel glass panel" id="sidePanel">
+      <div class="sp-tabs">
+        <div class="seg" id="spSeg">
+          <button data-act="panel" data-panel="queue">Очередь</button>
+          <button data-act="panel" data-panel="lyrics">Текст</button>
+        </div>
+        <button class="icon-btn" data-act="panel-close" title="Закрыть"><span class="i" data-icon="close"></span></button>
+      </div>
+      <div class="sp-body" id="spBody"></div>
+    </aside>
+
+    <footer class="player glass panel liquid" id="player">
+      <canvas class="mini-viz" id="miniViz"></canvas>
+      <div class="pl-left">
+        <button class="pl-cover" data-act="nowplaying" title="Открыть плеер"><img id="plCover" alt="" /><div class="eq" id="plEq"><i></i><i></i><i></i></div></button>
+        <div class="pl-meta">
+          <div class="pl-title" id="plTitle">Ничего не играет</div>
+          <div class="pl-artist" id="plArtist">Выберите трек или включите «Мою волну»</div>
+        </div>
+        <button class="icon-btn like-btn" id="plLike" data-act="like-current" title="Нравится (Ctrl+L)"><span class="i" data-icon="heart"></span></button>
+      </div>
+      <div class="pl-center">
+        <div class="pl-controls">
+          <button class="icon-btn" id="plShuffle" data-act="shuffle" title="Перемешать"><span class="i" data-icon="shuffle"></span></button>
+          <button class="icon-btn big" data-act="prev" title="Предыдущий (Ctrl+←)"><span class="i" data-icon="prev"></span></button>
+          <button class="play-orb" id="plPlay" data-act="toggle" title="Играть / пауза (Пробел)"><span class="i" data-icon="play"></span></button>
+          <button class="icon-btn big" data-act="next" title="Следующий (Ctrl+→)"><span class="i" data-icon="next"></span></button>
+          <button class="icon-btn" id="plRepeat" data-act="repeat" title="Повтор"><span class="i" data-icon="repeat"></span></button>
+        </div>
+        <div class="pl-seek">
+          <span class="time" id="plCur">0:00</span>
+          <div class="slider seek" id="seek"><div class="buf"></div><div class="fill"></div><div class="thumb"></div></div>
+          <span class="time" id="plDur">0:00</span>
+        </div>
+      </div>
+      <div class="pl-right">
+        <button class="q-badge" id="plQuality" data-act="quality-menu" title="Качество звука">FLAC</button>
+        <button class="icon-btn" id="plEqBtn" data-act="nav" data-view="equalizer" title="Эквалайзер"><span class="i" data-icon="eq"></span></button>
+        <button class="icon-btn" id="plLyricsBtn" data-act="panel" data-panel="lyrics" title="Текст песни"><span class="i" data-icon="lyrics"></span></button>
+        <button class="icon-btn" id="plQueueBtn" data-act="panel" data-panel="queue" title="Очередь"><span class="i" data-icon="queue"></span></button>
+        <button class="icon-btn" id="plVolBtn" data-act="mute" title="Без звука"><span class="i" data-icon="vol2"></span></button>
+        <div class="slider vol" id="vol"><div class="fill"></div><div class="thumb"></div></div>
+        <button class="icon-btn" data-act="nowplaying" title="Полноэкранный плеер"><span class="i" data-icon="expand"></span></button>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Полноэкранный плеер: карусель треков, по центру — текущий -->
+  <section id="nowPlaying" class="np hidden" aria-label="Сейчас играет">
+    <div class="np-bg"><div class="np-art" id="npBg"></div><div class="np-scene" id="npScene"></div></div>
+    <button class="icon-btn glass-btn np-close" data-act="nowplaying-close" title="Свернуть (Esc)"><span class="i" data-icon="chevronDown"></span></button>
+    <div class="np-source" id="npSource"></div>
+    <div class="np-stage" id="npStage">
+      <div class="np-flow" id="npFlow"></div>
+      <div class="np-meta">
+        <div class="np-title" id="npTitle"></div>
+        <div class="np-artist" id="npArtist"></div>
+      </div>
+      <div class="np-seek">
+        <div class="slider seek" id="npSeek"><div class="buf"></div><div class="fill"></div><div class="thumb"></div></div>
+        <div class="np-times"><span id="npCur">0:00</span><span id="npDur">0:00</span></div>
+      </div>
+      <div class="np-controls">
+        <button class="icon-btn" id="npShuffle" data-act="shuffle" title="Перемешать"><span class="i" data-icon="shuffle"></span></button>
+        <button class="icon-btn big" data-act="prev" title="Предыдущий"><span class="i" data-icon="prev"></span></button>
+        <button class="play-orb huge" id="npPlay" data-act="toggle" title="Играть / пауза"><span class="i" data-icon="play"></span></button>
+        <button class="icon-btn big" data-act="next" title="Следующий"><span class="i" data-icon="next"></span></button>
+        <button class="icon-btn" id="npRepeat" data-act="repeat" title="Повтор"><span class="i" data-icon="repeat"></span></button>
+      </div>
+      <div class="np-actions">
+        <button class="icon-btn like-btn" id="npLike" data-act="like-current" title="Нравится"><span class="i" data-icon="heart"></span></button>
+        <button class="chip" id="npLyricsBtn" data-act="np-lyrics" title="Текст песни"><span class="i" data-icon="lyrics"></span>Текст</button>
+        <button class="chip" id="npVizBtn" data-act="np-viz" title="Визуализатор под ритм"><span class="i" data-icon="viz"></span>Визуализатор</button>
+        <button class="icon-btn" data-act="current-menu" title="Ещё"><span class="i" data-icon="more"></span></button>
+      </div>
+    </div>
+    <div class="np-lyrics" id="npLyrics"></div>
+  </section>
+
+  <!-- Экран входа -->
+  <section id="login" class="login hidden">
+    <div class="login-card glass panel liquid">
+      <div class="brand-mark big"></div>
+      <h1>Zvuk Glass</h1>
+      <p class="muted">Неофициальный плеер для Zvuk. Подключите свой аккаунт, чтобы слушать музыку по своей подписке.</p>
+      <ol class="steps">
+        <li>
+          <span class="num">1</span>
+          <div class="st"><b>Войдите на zvuk.com</b><span>в своём обычном браузере</span></div>
+          <button class="btn small" data-act="open-zvuk" data-url="https://zvuk.com/">Открыть</button>
+        </li>
+        <li>
+          <span class="num">2</span>
+          <div class="st"><b>Откройте страницу профиля</b><span>и скопируйте всё (Ctrl+A, Ctrl+C)</span></div>
+          <button class="btn small" data-act="open-zvuk" data-url="https://zvuk.com/api/tiny/profile">Открыть</button>
+        </li>
+        <li>
+          <span class="num">3</span>
+          <div class="st"><b>Вставьте сюда</b><span>приложение само найдёт токен</span></div>
+          <button class="btn small primary" data-act="paste-token">Вставить</button>
+        </li>
+      </ol>
+      <div class="divider"><span>или вручную</span></div>
+      <form class="token-form" id="tokenForm">
+        <input class="input" id="tokenInput" type="password" placeholder="Токен Zvuk или текст страницы профиля" autocomplete="off" spellcheck="false" />
+        <button class="btn" type="submit">Войти</button>
+      </form>
+      <p class="muted small" style="margin:14px 0 0">Токен хранится только на этом компьютере в зашифрованном виде. Пароль от Zvuk приложению не нужен.</p>
+      <div class="login-error hidden" id="loginError"></div>
+    </div>
+  </section>
+
+  <div class="suggest glass-menu hidden" id="suggest"></div>
+  <div id="menuLayer"></div>
+  <div id="modalLayer"></div>
+  <div id="toasts"></div>
+  <audio id="audio" preload="auto" crossorigin="anonymous"></audio>
+
+  <script src="icons.js"></script>
+  <script src="util.js"></script>
+  <script src="audio-fx.js"></script>
+  <script src="visualizer.js"></script>
+  <script src="custom.js"></script>
+  <script src="clip.js"></script>
+  <script src="vizscene.js"></script>
+  <script src="player.js"></script>
+  <script src="views.js"></script>
+  <script src="np.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
