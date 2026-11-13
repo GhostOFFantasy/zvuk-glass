@@ -3,6 +3,7 @@
 
 mod clips;
 mod crypt;
+mod lyrics;
 mod media;
 mod store;
 mod sync;
@@ -68,6 +69,7 @@ struct App {
     auth_ready: watch::Receiver<bool>,
     clips: clips::Clips,
     sync: sync::Sync,
+    lyrics: lyrics::Lyrics,
     streams: media::Streams,
     updates: Arc<updates::Updates>,
     shot_taken: AtomicBool,
@@ -360,6 +362,19 @@ fn yt_update(app: S<'_>, track_id: Value, patch: Value) -> Value {
     app.clips.set(&id, e)
 }
 
+// ---------- Тексты из LRCLIB ----------
+/// Текст песни из открытой базы LRCLIB, если в Zvuk его нет или он без времени строк.
+/// В LRCLIB уходят только исполнитель, название и длительность трека.
+#[tauri::command]
+async fn lyrics_external(app: S<'_>, id: Value, artist: String, title: String, duration: f64) -> Result<Value, ApiError> {
+    let artist: String = artist.trim().chars().take(200).collect();
+    let title: String = title.trim().chars().take(300).collect();
+    if artist.is_empty() || title.is_empty() {
+        return Ok(Value::Null);
+    }
+    Ok(app.lyrics.find(&zvuk::id_str(&id), &artist, &title, duration.clamp(0.0, 7200.0)).await)
+}
+
 // ---------- Автосинхронизация клипа ----------
 #[tauri::command]
 async fn sync_prepare(app: S<'_>, track_id: Value) -> Result<Value, ApiError> {
@@ -458,6 +473,17 @@ fn debug_mouse(app: S<'_>, window: WebviewWindow, x: f64, y: f64, kind: Option<S
         p["clickCount"] = json!(1);
     }
     winx::cdp(&window, "Input.dispatchMouseEvent", p.to_string());
+}
+
+/// Яркость того, что сейчас видно в окне: уменьшенная серая копия кадра (ширина `width`, байт на точку,
+/// base64). По ней интерфейс подбирает светлый или тёмный цвет над клипом. Кадр никуда не уходит и не сохраняется.
+#[tauri::command]
+async fn ui_probe(window: WebviewWindow, width: u32) -> Option<Value> {
+    use base64::Engine;
+    let jpeg = winx::capture_jpeg(&window).await.ok()??;
+    let w = width.clamp(32, 640);
+    let (tw, th, gray) = tauri::async_runtime::spawn_blocking(move || winx::gray_thumb(&jpeg, w)).await.ok()??;
+    Some(json!({ "w": tw, "h": th, "data": base64::engine::general_purpose::STANDARD.encode(gray) }))
 }
 
 // ---------- Окно ----------
@@ -608,8 +634,37 @@ fn diag(dir: &std::path::Path) {
     }
 }
 
+/// Запущена не установленная копия (старый ярлык, перенесённый или оставшийся файл), а установлена
+/// более новая версия — открываем установленную и выходим. Иначе такая копия при каждом запуске
+/// заново скачивает обновление, а после выхода всё «откатывается».
+fn run_installed_if_newer() -> bool {
+    if cfg!(debug_assertions) {
+        return false;
+    }
+    let Some((dir, ver)) = winx::installed_copy() else { return false };
+    let target = dir.join("zvuk-glass.exe");
+    let Ok(me) = std::env::current_exe() else { return false };
+    let same = match (me.canonicalize(), target.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => return false, // установленного файла нет
+    };
+    let num = |v: &str| -> Vec<u64> { v.split(['.', '-', '+']).take(3).map(|p| p.parse().unwrap_or(0)).collect() };
+    if same || num(&ver) <= num(env!("CARGO_PKG_VERSION")) {
+        return false;
+    }
+    std::process::Command::new(&target).args(std::env::args_os().skip(1)).spawn().is_ok()
+}
+
 fn main() {
     let args = Args::parse();
+    if args.screenshot.is_none() && std::env::args().all(|a| !a.starts_with("--diag")) && run_installed_if_newer() {
+        return;
+    }
+    // служебно: где установлена программа по записи установщика (--diag-installed)
+    if std::env::args().any(|a| a == "--diag-installed") {
+        println!("installed: {:?} | this: {} | exe: {:?}", winx::installed_copy(), env!("CARGO_PKG_VERSION"), std::env::current_exe().ok());
+        return;
+    }
     let dir = data_dir(&args);
     // запросы к Zvuk идут с User-Agent установленного движка WebView2 (до создания HTTP-клиентов)
     if let Some(v) = winx::webview_version() {
@@ -645,6 +700,7 @@ fn main() {
         updates: Arc::new(updates::Updates::new(shot && args.updtest)),
         clips: clips::Clips::new(&dir),
         sync: sync::Sync::new(),
+        lyrics: lyrics::Lyrics::new(),
         streams: media::Streams::new(),
         client: ZvukClient::new(),
         profile: Mutex::new(None),
@@ -714,6 +770,8 @@ fn main() {
             screenshot_ready,
             debug_log,
             debug_mouse,
+            ui_probe,
+            lyrics_external,
         ])
         .setup(move |tapp| {
             let handle = tapp.handle().clone();
@@ -733,7 +791,7 @@ fn main() {
             if shot {
                 // страховка: служебный запуск не висит вечно
                 let h = handle.clone();
-                let long = app.args.updtest || app.args.extra.as_deref().is_some_and(|e| e.starts_with("clipsync"));
+                let long = app.args.updtest || app.args.extra.as_deref().is_some_and(|e| e.starts_with("clipsync") || e == "lyrext");
                 let limit = if long { 300 } else { 60 };
                 std::thread::spawn(move || {
                     std::thread::sleep(Duration::from_secs(limit));

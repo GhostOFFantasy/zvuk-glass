@@ -10,7 +10,7 @@ use serde_json::{json, Map, Value};
 
 use crate::crypt;
 
-pub const PUBLIC_KEYS: [&str; 10] = ["quality", "volume", "shuffle", "repeat", "liquidGlass", "wave", "custom", "eq", "viz", "profileLocal"];
+pub const PUBLIC_KEYS: [&str; 11] = ["quality", "volume", "shuffle", "repeat", "liquidGlass", "wave", "custom", "eq", "viz", "profileLocal", "lyrics"];
 
 fn defaults() -> Map<String, Value> {
     let v = json!({
@@ -24,6 +24,7 @@ fn defaults() -> Map<String, Value> {
         "eq": null,
         "viz": {},
         "profileLocal": {},
+        "lyrics": { "external": true },
         "media": {},
         "bounds": null,
     });

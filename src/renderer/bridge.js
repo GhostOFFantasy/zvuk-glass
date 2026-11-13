@@ -46,6 +46,18 @@
       thumbarIcons: (icons) => invoke('thumbar_icons', { icons }).catch(() => {}),
       appIcon: () => {}, // значок приложения теперь встроен при сборке
     },
+    /** Текст песни из LRCLIB: { text, synced, source } или null. */
+    lyrics: {
+      external: (t) =>
+        invoke('lyrics_external', {
+          id: String(t.id),
+          artist: String((t.artists && t.artists[0] && t.artists[0].title) || ''),
+          title: String(t.title || ''),
+          duration: Number(t.duration) || 0,
+        }).catch(() => null),
+    },
+    /** Серая уменьшенная копия кадра окна ({ w, h, data: base64 }) — для подбора цвета интерфейса над клипом. */
+    ui: { probe: (width) => invoke('ui_probe', { width: Math.round(width) }).catch(() => null) },
     /** Окно свёрнуто (true) / снова на экране (false). */
     onHidden: (fn) => listen('win:hidden', (e) => fn(Boolean(e.payload))),
     clipboard: (text) => invoke('clipboard_write', { text: String(text || '') }),

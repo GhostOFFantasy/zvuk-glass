@@ -916,6 +916,7 @@
             <button class="${q === 'mid' ? 'on' : ''}" data-act="quality" data-q="mid">128 кбит/с</button></div>`)}
           ${row('Эквалайзер', AudioFX.eq.enabled ? `Включён · ${esc(AudioFX.PRESETS[AudioFX.eq.preset]?.name || 'свой')}` : 'Выключен', `<button class="btn small" data-act="nav" data-view="equalizer">${icon('eq')}Открыть</button>`)}
           ${row('Визуализатор', 'Мягкая анимация под ритм, фон — обложка, своя картинка, видео или официальный клип. Есть и в полноэкранном плеере.', `<button class="btn small" data-act="nav" data-view="visualizer">${icon('viz')}Открыть</button>`)}
+          ${row('Тексты из LRCLIB', 'Если в Zvuk у песни нет текста или он без привязки ко времени, приложение найдёт синхронизированный текст в открытой базе LRCLIB. Туда уходят только исполнитель, название и длительность трека.', `<button class="switch${App.settings.lyrics?.external !== false ? ' on' : ''}" data-act="lyrics-ext"></button>`)}
         </div>
 
         <div class="set-title">Клипы с YouTube</div>

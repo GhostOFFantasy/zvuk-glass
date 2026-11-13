@@ -49,6 +49,9 @@ $shots = [ordered]@{
   'artistpop' = @('--route=artist:168687', '--extra=artistpop')
   'voldrag'   = @('--route=release:6233892', '--extra=voldrag')
   'minieq'    = @('--route=release:6233892', '--extra=minieq')
+  'ink'       = @('--route=release:6233892', '--extra=ink')
+  'inkclip'   = @('--route=release:6233892', '--extra=inkclip')
+  'lyrext'    = @('--route=home', '--extra=lyrext')
 }
 $OnlyList = @($Only -split "," | Where-Object { $_ })
 foreach ($name in $shots.Keys) {
@@ -57,7 +60,7 @@ foreach ($name in $shots.Keys) {
   if (Test-Path $out) { Remove-Item $out }
   $args = @("--screenshot=$out") + $shots[$name]
   $p = Start-Process -FilePath $Exe -ArgumentList $args -NoNewWindow -PassThru -RedirectStandardOutput "$OutDir/$name.out" -RedirectStandardError "$OutDir/$name.err"
-  if (-not $p.WaitForExit(90000)) { $p.Kill(); Write-Output "$name : TIMEOUT" ; continue }
+  if (-not $p.WaitForExit(300000)) { $p.Kill(); Write-Output "$name : TIMEOUT" ; continue }
   $log = Get-Content "$OutDir/$name.out" -ErrorAction SilentlyContinue | Where-Object { $_ -notmatch 'SCREENSHOT_SAVED' -and $_.Trim() }
   Write-Output ("{0} : {1}" -f $name, $(if (Test-Path $out) { 'ok' } else { 'НЕТ СНИМКА' }))
   $log | ForEach-Object { Write-Output "   $_" }
