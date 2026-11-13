@@ -104,7 +104,7 @@ impl Clips {
     pub fn new(dir: &std::path::Path) -> Self {
         let file = dir.join("clips.json");
         let data = std::fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-        let http = reqwest::Client::builder().timeout(Duration::from_secs(15)).build().expect("http client");
+        let http = crate::net::builder().timeout(Duration::from_secs(15)).build().expect("http client");
         Self { http, file, data: Mutex::new(data) }
     }
 

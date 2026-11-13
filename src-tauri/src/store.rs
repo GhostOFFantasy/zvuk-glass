@@ -124,7 +124,21 @@ impl Store {
                 return Some(v);
             }
         }
-        self.get(&format!("{prefix}Plain")).as_str().map(String::from)
+        // Значение без шифрования (шифрование было недоступно) — зашифруем, как только получится
+        let plain = self.get(&format!("{prefix}Plain")).as_str().map(String::from)?;
+        if let Some(s) = crypt::seal(&plain) {
+            self.update(|d| {
+                d.insert(format!("{prefix}Dpapi"), serde_json::json!(s));
+                d.remove(&format!("{prefix}Plain"));
+                true
+            });
+        }
+        Some(plain)
+    }
+
+    /// Есть ли сохранённый секрет (без расшифровки).
+    pub fn has_secret(&self, prefix: &str) -> bool {
+        ["Dpapi", "Enc", "Plain"].iter().any(|s| self.get(&format!("{prefix}{s}")).as_str().is_some_and(|v| !v.is_empty()))
     }
 
     pub fn write_secret(&self, prefix: &str, value: Option<&str>) {

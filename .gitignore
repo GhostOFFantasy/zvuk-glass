@@ -1,7 +1,7 @@
 node_modules/
 dist/
 src-tauri/target/
-src-tauri/gen/
+src-tauri/gen/schemas/
 *.log
 screenshot.png
 screenshots/
@@ -10,3 +10,6 @@ screenshots/
 *.key
 *.pem
 .env
+*.jks
+*.keystore
+keystore.properties

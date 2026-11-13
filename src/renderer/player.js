@@ -58,6 +58,9 @@
 
       audio.addEventListener('play', () => this._state());
       audio.addEventListener('pause', () => this._state());
+      // позиция и длительность для уведомления и экрана блокировки на Android
+      audio.addEventListener('seeked', () => this._state());
+      audio.addEventListener('durationchange', () => this._state());
       audio.addEventListener('playing', () => {
         this._failStreak = 0;
         this._state();
@@ -356,7 +359,16 @@
       document.body.classList.toggle('paused', audio.paused);
       this.emit('state', { playing: this.playing });
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = audio.paused ? 'paused' : 'playing';
-      window.zvuk.player.state({ playing: this.playing, title: t?.title, artist: t ? artistsText(t.artists) : '' });
+      // Windows: кнопки на миниатюре и заголовок окна; Android: уведомление «Сейчас играет» и экран блокировки
+      const d = audio.duration;
+      window.zvuk.player.state({
+        playing: this.playing,
+        title: t?.title || '',
+        artist: t ? artistsText(t.artists) : '',
+        cover: t ? cover(t, 400) : '',
+        position: audio.currentTime || 0,
+        duration: isFinite(d) && d > 0 ? d : t?.duration || 0,
+      });
     },
     _lastPos: 0,
     _time() {

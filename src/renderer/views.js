@@ -155,7 +155,7 @@
       idle: true,
       sensitivity: 1.15,
       liveIf: () => Player.source?.kind === 'wave',
-      fps: 40,
+      fps: window.ZG_MOBILE ? 30 : 40,
       maxDpr: 1.5,
       onFrame: (V) => {
         const hero = canvas.closest('.wv-hero');
@@ -588,6 +588,32 @@
   };
 
   // ---------- Любимые треки ----------
+  // ---------- Моё (телефон): коллекция, плейлисты, настройки — то, что на компьютере в боковой панели ----------
+  Views.library = async (view) => {
+    const name = App.displayName();
+    const av = App.avatarUrl(120);
+    const tile = (viewId, ic, label, sub = '') =>
+      `<button class="lib-tile glass" data-act="nav" data-view="${viewId}">${icon(ic)}<b>${label}</b>${sub ? `<small>${sub}</small>` : ''}</button>`;
+    view.innerHTML = `<div class="lib-head">
+        <h1 class="page-title">Моё</h1>
+        <button class="lib-profile" data-act="nav" data-view="settings" title="Настройки">${av ? `<img src="${esc(av)}" alt="">` : `<span>${esc(name[0] || 'Z')}</span>`}</button>
+      </div>
+      <div class="lib-tiles">
+        ${tile('liked', 'heartFill', 'Любимые треки', App.likes.track.size ? tracksWord(App.likes.track.size) : '')}
+        ${tile('playlists', 'playlist', 'Плейлисты')}
+        ${tile('albums', 'album', 'Альбомы')}
+        ${tile('artists', 'mic', 'Исполнители')}
+        ${tile('history', 'clock', 'История')}
+        ${tile('visualizer', 'viz', 'Визуализатор')}
+        ${tile('equalizer', 'eq', 'Эквалайзер')}
+        ${tile('settings', 'settings', 'Настройки')}
+      </div>
+      <section class="section"><div class="section-head"><h2>Мои плейлисты</h2>
+        <button class="more" data-act="create-playlist">${icon('plus')}Новый</button></div>
+        <div class="grid">${(App.playlists || []).filter((p) => App.isOwnPlaylist(p)).map(playlistCard).join('') || '<div class="muted small">Пока нет своих плейлистов</div>'}</div>
+      </section>`;
+  };
+
   Views.liked = async (view) => {
     view.innerHTML = `<div class="hero" style="--hero:var(--accent-2)">
         <div class="hero-cover"><div class="tile-art" style="--t1:var(--accent);--t2:var(--accent-2)">${icon('heartFill')}</div></div>
@@ -1084,7 +1110,9 @@
       if (st.packaged === false) line = 'Версия для разработки — обновления работают в установленном приложении';
       else if (st.state === 'checking') (line = 'Проверяем обновления…'), (ctrl = `<button class="btn small" disabled>${icon('refresh')}Проверка…</button>`);
       else if (st.state === 'downloading') line = `Скачивается версия ${esc(st.version || '')}${st.percent ? ` — ${st.percent}%` : '…'}`;
-      else if (st.state === 'ready') (line = `Версия ${esc(st.version)} скачана и установится при выходе`), (ctrl = btn('install', 'Перезапустить и обновить', 'refresh', true));
+      else if (st.state === 'ready')
+        (line = window.ZG_MOBILE ? `Версия ${esc(st.version)} скачана — установку подтвердит Android` : `Версия ${esc(st.version)} скачана и установится при выходе`),
+          (ctrl = btn('install', window.ZG_MOBILE ? 'Установить' : 'Перезапустить и обновить', 'refresh', true));
       else if (st.state === 'error') (line = `Не удалось проверить: ${esc(st.message || '')}`), (ctrl = btn('check', 'Повторить', 'refresh'));
       else (line = st.state === 'none' ? 'Установлена последняя версия' : 'Обновления проверяются автоматически'), (ctrl = btn('check', 'Проверить обновления', 'refresh'));
       card.querySelector('#appVer').textContent = st.current ? 'v' + st.current : '';

@@ -1,0 +1,7 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Тёмная тема без белой вспышки при запуске -->
+    <style name="Theme.zvuk_glass" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="android:windowBackground">@color/zg_bg</item>
+        <item name="colorPrimary">@color/zg_accent</item>
+    </style>
+</resources>

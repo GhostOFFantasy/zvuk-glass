@@ -7,26 +7,33 @@ edition = "2021"
 rust-version = "1.85"
 publish = false
 
+# Библиотека — общая для Windows (zvuk-glass.exe) и Android (libzvuk_glass_lib.so)
+[lib]
+name = "zvuk_glass_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
 tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
 tauri = { version = "2.12", features = ["image-png"] }
-tauri-plugin-single-instance = "2.5"
-tauri-plugin-updater = { version = "2.14", default-features = false, features = ["native-tls", "system-proxy"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.13", default-features = false, features = ["native-tls", "json", "gzip", "brotli", "deflate", "http2", "charset", "system-proxy"] }
 tokio = { version = "1", features = ["sync", "time"] }
 futures = "0.3"
 base64 = "0.22"
-aes-gcm = "0.10"
 regex = "1"
 url = "2"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[target.'cfg(windows)'.dependencies]
+tauri-plugin-single-instance = "2.5"
+tauri-plugin-updater = { version = "2.14", default-features = false, features = ["native-tls", "system-proxy"] }
+reqwest = { version = "0.13", default-features = false, features = ["native-tls", "json", "gzip", "brotli", "deflate", "http2", "charset", "system-proxy"] }
+aes-gcm = "0.10"
 rfd = { version = "0.18", default-features = false }
 arboard = { version = "3", default-features = false }
 open = "5"
-chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 webview2-com = "0.39"
 # автосинхронизация клипа: захват звука приложения, декодирование трека, спектр
 wasapi = "0.27"
@@ -45,6 +52,16 @@ windows = { version = "0.62", features = [
   "Win32_Graphics_Imaging",
   "Win32_System_Performance",
 ] }
+
+# Android: TLS на чистом Rust (rustls + ring) с корневыми сертификатами Mozilla — без сборки OpenSSL
+[target.'cfg(target_os = "android")'.dependencies]
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json", "gzip", "brotli", "deflate", "http2", "charset"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+webpki-roots = "1"
+tauri-plugin-opener = "2"
+tauri-plugin-clipboard-manager = "2"
+jni = "0.21"
+ndk-context = "0.1"
 
 [profile.release]
 codegen-units = 1
