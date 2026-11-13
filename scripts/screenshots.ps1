@@ -42,6 +42,7 @@ $shots = [ordered]@{
   'perf'      = @('--route=artist:1457739', '--extra=perf')
   'cliptest'  = @('--route=visualizer', '--extra=cliptest')
   'clipq'     = @('--route=visualizer', '--extra=clipq1080')
+  'clipsync'  = @('--route=visualizer', '--extra=clipsync')
   'sbcollapse' = @('--route=artist:1457739', '--extra=sbcollapse')
   'sbexpand'  = @('--route=artist:1457739', '--extra=sbexpand')
 }

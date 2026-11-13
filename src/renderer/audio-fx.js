@@ -138,7 +138,14 @@
     /** Громкость регулируется после анализатора — визуализация не зависит от уровня звука. */
     setVolume(v) {
       this.volume = v;
-      if (this.ready) this.vol.gain.setTargetAtTime(v, this.ctx.currentTime, 0.015);
+      if (this.ready && !this.ducked) this.vol.gain.setTargetAtTime(v, this.ctx.currentTime, 0.015);
+    },
+
+    /** Временно заглушить трек (анализатор продолжает работать) — для подстройки клипа по звуку. */
+    ducked: false,
+    duck(on) {
+      this.ducked = Boolean(on);
+      if (this.ready) this.vol.gain.setTargetAtTime(on ? 0 : this.volume ?? 1, this.ctx.currentTime, 0.02);
     },
 
     /** АЧХ эквалайзера в дБ для массива частот. */

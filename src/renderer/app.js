@@ -434,6 +434,11 @@
     const sc = $('#scroller');
     const prevScroll = sc.scrollTop;
     const old = $('#view');
+    // сцена визуализатора держит клип YouTube и анимацию — освобождаем её вместе со старым экраном
+    if (Views._vizScene) {
+      Views._vizScene.destroy();
+      Views._vizScene = null;
+    }
     const view = document.createElement('div');
     view.className = 'view' + (keepScroll ? '' : ' enter');
     view.id = 'view';
@@ -1562,7 +1567,7 @@
     await new Promise((r) => setTimeout(r, 2500));
     const imgs = $$('img').filter((i) => i.src && !i.complete);
     await Promise.race([Promise.all(imgs.map((i) => new Promise((r) => (i.onload = i.onerror = r)))), new Promise((r) => setTimeout(r, 5000))]);
-    const extra = params.get('extra') || '';
+    let extra = params.get('extra') || '';
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     const firstList = () => [...UI.Lists.values()].find((x) => x.tracks.length > 4) || [...UI.Lists.values()].find((x) => x.tracks.length);
     // Тихое воспроизведение: звук идёт в анализатор, но не в динамики
@@ -1586,8 +1591,14 @@
       }
     }
     // служебно: долгое тихое воспроизведение (проверка медиаклавиш и системной панели Windows)
-    if (extra === 'playlong') {
+    if (extra === 'playlong' || extra === 'playlongq') {
       await silentPlay(1);
+      // «q» — очень тихо, но не беззвучно (проверка захвата звука)
+      if (extra === 'playlongq') {
+        Player._applyVolume = () => AudioFX.setVolume(0.02);
+        AudioFX.setVolume(0.02);
+        console.warn(`SELFTEST audio: ctx=${AudioFX.ctx && AudioFX.ctx.state} ready=${AudioFX.ready} gain=${AudioFX.vol && AudioFX.vol.gain.value} paused=${Player.audio.paused} level=${Viz.level.toFixed(3)}`);
+      }
       await wait(25000);
       return window.zvuk.screenshotReady(0);
     }
@@ -1722,6 +1733,67 @@
       const s = $('#sidebar').getBoundingClientRect();
       console.warn(`SELFTEST ${extra} mid: sidebar x=${Math.round(s.left)} w=${Math.round(s.width)} | main x=${Math.round(m.left)} w=${Math.round(m.width)}`);
       return window.zvuk.screenshotReady(0);
+    } else if (extra.startsWith('clipsync')) {
+      // clipsync@<id ролика> — проверить на другом ролике
+      const vidArg = extra.includes('@') ? extra.split('@')[1] : 'dQw4w9WgXcQ';
+      extra = extra.split('@')[0];
+      // Автосинхронизация: тихое воспроизведение (звук нужен — его слушает захват), клип по ссылке.
+      // Для гостя трек — 30-секундное превью из середины песни, поэтому сначала ищем место клипа,
+      // где звучит этот фрагмент (ручной сдвиг шагами по 20 с), потом повторяем замер для проверки.
+      const s = App.settings.viz;
+      Object.assign(s, { bg: 'clip', style: 'waves', clipAuto: false, clipQ: '480' });
+      let t;
+      if (extra === 'clipsync') {
+        const r = await api('search', 'Rick Astley Never Gonna Give You Up');
+        const ok = (x) => /never gonna give you up/i.test(x.title) && /astley/i.test(artistsText(x.artists)) && !/instrumental|karaoke|remix|mix\)|live|acoustic|pianoforte|edit/i.test(x.title);
+        t = r.tracks.find(ok) || r.tracks[0];
+      } else {
+        const r = await api('getRelease', '6233892');
+        t = { ...r.tracks[0], release: { id: r.id, title: r.title, image: r.image } };
+      }
+      console.warn(`SELFTEST clipsync track: ${t.title} — ${artistsText(t.artists)}`);
+      Player._applyVolume = () => AudioFX.setVolume(0.02);
+      Player.playList([t], 0, { kind: 'list', title: 'test' });
+      await wait(2500);
+      AudioFX.setVolume(0.02);
+      App.rerender();
+      await wait(800);
+      await Clip.setLink('https://www.youtube.com/watch?v=' + vidArg);
+      await wait(4000);
+      Clip._calKey = Clip.trackId + '|' + Clip.videoId; // подстройку запускает сам тест, по шагам
+      s.clipAuto = true;
+      const steps = extra === 'clipsync' ? [0, 20, 40, 60, 80, 100, 120, 140, 160, 180] : [0];
+      for (const off of steps) {
+        Player.seek(1);
+        await Clip._update({ offset: off, auto: null });
+        Clip._calKey = Clip.trackId + '|' + Clip.videoId; // чтобы подстройка не запустилась сама посреди шага
+        await wait(2600);
+        console.warn(`SELFTEST clipsync before off=${off}: paused=${Player.audio.paused} t=${Player.audio.currentTime.toFixed(2)} gain=${AudioFX.vol && AudioFX.vol.gain.value.toFixed(3)} ducked=${AudioFX.ducked} level=${Viz.level.toFixed(3)}`);
+        await Clip.calibrate(true);
+        console.warn(`SELFTEST clipsync try off=${off}: ${Clip.sync.state} ${Clip.sync.message}`);
+        if (Clip.sync.state === 'done') break;
+      }
+      if (Clip.sync.state === 'done') {
+        const first = Clip.autoInfo.offset;
+        // точность удержания: расхождение по сообщениям YouTube в течение 4 секунд
+        await wait(3000);
+        const ds = [];
+        for (let k = 0; k < 40; k++) {
+          const f = $('.clip-frame');
+          ds.push(Clip._driftForTest ? Clip._driftForTest() : NaN);
+          await wait(100);
+        }
+        const v = ds.filter((x) => isFinite(x));
+        const mean = v.reduce((a, b) => a + Math.abs(b), 0) / (v.length || 1);
+        console.warn(`SELFTEST clipsync hold: mean|drift|=${(mean * 1000).toFixed(0)}ms max=${(Math.max(...v.map(Math.abs)) * 1000).toFixed(0)}ms n=${v.length}`);
+        // повторный замер с того же места — должен дать тот же сдвиг
+        Player.seek(Math.max(1, Player.audio.currentTime - 12));
+        await wait(2500);
+        await Clip.calibrate(true);
+        console.warn(`SELFTEST clipsync repeat: first=${first} second=${Clip.autoInfo ? Clip.autoInfo.offset : '-'} diff=${Clip.autoInfo ? ((Clip.autoInfo.offset - first) * 1000).toFixed(0) + 'ms' : '-'}`);
+      }
+      $('.vz-gear') && $('.vz-gear').click();
+      await wait(700);
     } else if (extra.startsWith('clipq')) {
       // Клип в заданном качестве (clipq1080, clipq480, clipqauto)
       App.settings.viz.bg = 'clip';
