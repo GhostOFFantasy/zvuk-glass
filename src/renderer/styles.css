@@ -905,6 +905,76 @@ body:not(.bg-mode-cover) .bg-art { opacity: 0 !important; }
 body.bg-mode-image .blob, body.bg-mode-video .blob { opacity: 0.22 !important; }
 body.no-blobs .blob { display: none; }
 .bg-dim { position: absolute; inset: 0; background: rgba(0, 0, 0, var(--bg-dim)); transition: background 0.4s; }
+/* ---------- «Чернила» над клипом (ink.js): --ink 0 — светлый интерфейс, 1 — тёмный ----------
+   Ставится только тем элементам, под которыми сейчас светлый кадр; переход плавный, все цвета
+   считаются из одного числа. При --ink: 0 всё выглядит в точности как обычно. */
+@property --ink { syntax: '<number>'; inherits: true; initial-value: 0; }
+@property --bgl { syntax: '<number>'; inherits: true; initial-value: 0.3; }
+.inkable {
+  --ink-fg: color-mix(in srgb, #0b0b10 calc(var(--ink) * 100%), #f5f5f7);
+  --text: var(--ink-fg);
+  --text-2: color-mix(in srgb, var(--ink-fg) calc(70% + var(--ink) * 22%), transparent);
+  --text-3: color-mix(in srgb, var(--ink-fg) calc(46% + var(--ink) * 36%), transparent);
+  /* подложка кнопок: над светлым кадром — светлое матовое стекло, тёмное на нём читается лучше всего */
+  --ink-wash: color-mix(in srgb, rgba(255, 255, 255, 0.46) calc(var(--ink) * 100%), rgba(255, 255, 255, 0.08));
+  --ink-line: color-mix(in srgb, rgba(255, 255, 255, 0.6) calc(var(--ink) * 100%), rgba(255, 255, 255, 0.1));
+  /* тень под текстом: у светлого текста тем гуще, чем светлее фон (--bgl — яркость фона);
+     у тёмного — тонкий светлый контур вокруг букв и мягкий ореол */
+  --ink-halo: color-mix(in srgb, rgba(255, 255, 255, 0.8) calc(var(--ink) * 100%), rgba(0, 0, 0, calc(0.2 + var(--bgl) * 0.6)));
+  --ink-edge: color-mix(in srgb, rgba(255, 255, 255, 0.95) calc(var(--ink) * 100%), rgba(0, 0, 0, calc(var(--bgl) * 0.35)));
+  text-shadow: 0 0 1.5px var(--ink-edge), 0 0 1.5px var(--ink-edge), 0 1px 12px var(--ink-halo);
+}
+.np-title.inkable, .vz-t1.inkable { color: var(--text); }
+.vz-t1.inkable, .vz-t2.inkable { text-shadow: 0 0 1.5px var(--ink-edge), 0 0 1.5px var(--ink-edge), 0 2px 16px var(--ink-halo); }
+.inkable .i svg, .icon-btn.inkable .i svg {
+  filter: drop-shadow(0 0 1px color-mix(in srgb, rgba(255, 255, 255, 0.95) calc(var(--ink) * 100%), transparent)) drop-shadow(0 1px 6px color-mix(in srgb, rgba(255, 255, 255, 0.7) calc(var(--ink) * 100%), transparent));
+}
+.glass-btn.inkable, .chip.inkable:not(.on) {
+  background: var(--ink-wash); box-shadow: inset 0 0 0 1px var(--ink-line), 0 4px 14px color-mix(in srgb, rgba(0, 0, 0, 0.12) calc(var(--ink) * 100%), transparent);
+  -webkit-backdrop-filter: blur(calc(var(--ink) * 12px)); backdrop-filter: blur(calc(var(--ink) * 12px));
+}
+/* кнопки-значки без подложки получают светлый матовый кружок, пока над ними светлый кадр */
+.icon-btn.inkable:not(.glass-btn), .inkable .icon-btn {
+  background: color-mix(in srgb, rgba(255, 255, 255, 0.36) calc(var(--ink) * 100%), transparent);
+  -webkit-backdrop-filter: blur(calc(var(--ink) * 10px)); backdrop-filter: blur(calc(var(--ink) * 10px));
+}
+.icon-btn.inkable:hover, .inkable .icon-btn:hover, .glass-btn.inkable:hover { background: color-mix(in srgb, var(--ink-wash), var(--ink-fg) 8%); }
+.win-ctrls.inkable button { color: var(--text); }
+.win-ctrls.inkable button:hover { background: var(--ink-wash); color: var(--text); }
+/* белый шар «Играть» над светлым кадром становится тёмным */
+.play-orb.inkable {
+  color: color-mix(in srgb, #fff calc(var(--ink) * 100%), #111);
+  background: radial-gradient(circle at 32% 22%,
+    color-mix(in srgb, #4b4b59 calc(var(--ink) * 100%), #fff),
+    color-mix(in srgb, #24242d calc(var(--ink) * 100%), rgba(255, 255, 255, 0.82)) 45%,
+    color-mix(in srgb, #121217 calc(var(--ink) * 100%), rgba(230, 230, 240, 0.9)) 100%);
+}
+/* полосы времени и громкости */
+.inkable .slider::before { background: color-mix(in srgb, rgba(10, 10, 16, 0.28) calc(var(--ink) * 100%), rgba(255, 255, 255, 0.14)); }
+.inkable .slider .buf { background: color-mix(in srgb, rgba(10, 10, 16, 0.14) calc(var(--ink) * 100%), rgba(255, 255, 255, 0.14)); }
+.inkable .slider.vol:not(:hover):not(.drag) .fill { background: linear-gradient(90deg, color-mix(in srgb, rgba(22, 22, 29, 0.85) calc(var(--ink) * 100%), rgba(255, 255, 255, 0.85)), var(--ink-fg)); box-shadow: 0 0 12px color-mix(in srgb, transparent calc(var(--ink) * 100%), rgba(255, 255, 255, 0.35)); }
+.inkable .slider.seek.sc-white {
+  --kg: linear-gradient(90deg, color-mix(in srgb, rgba(22, 22, 29, 0.82) calc(var(--ink) * 100%), rgba(255, 255, 255, 0.82)), var(--ink-fg), color-mix(in srgb, rgba(22, 22, 29, 0.82) calc(var(--ink) * 100%), rgba(255, 255, 255, 0.82)));
+}
+
+/* Текст из LRCLIB: подпись источника и подстройка времени строк (липнет к верху прокрутки) */
+.lyr-src {
+  position: sticky; top: 6px; z-index: 3; display: flex; align-items: center; gap: 8px; width: fit-content; max-width: calc(100% - 12px);
+  margin: 6px auto 10px; padding: 5px 6px 5px 12px; border-radius: 999px; font: 600 12px/1.2 var(--font); color: var(--text-2);
+  background: rgba(20, 20, 28, 0.6); -webkit-backdrop-filter: blur(18px) saturate(160%); backdrop-filter: blur(18px) saturate(160%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09), 0 6px 18px rgba(0, 0, 0, 0.25);
+}
+.lyr-src .i { width: 14px; height: 14px; flex: none; color: var(--text-3); }
+.lyr-src span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 6px; }
+.lyr-off { display: inline-flex; align-items: center; gap: 2px; padding-left: 6px; border-left: 1px solid rgba(255, 255, 255, 0.1); }
+.lyr-off button { width: 26px; height: 26px; border-radius: 50%; color: var(--text-2); font-size: 16px; font-weight: 700; line-height: 1; transition: background 0.2s, color 0.2s; }
+.lyr-off button:hover { background: rgba(255, 255, 255, 0.1); color: var(--text); }
+.lyr-off b { min-width: 60px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+body.design-classic .lyr-src { background: #24242b; -webkit-backdrop-filter: none; backdrop-filter: none; }
+.np-lyr-src { -webkit-app-region: no-drag; position: absolute; top: 52px; right: 5vw; width: 42vw; z-index: 3; display: flex; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.5s ease; }
+.np.lyrics-on .np-lyr-src { opacity: 1; pointer-events: auto; }
+.np-lyr-src .lyr-src { position: static; margin: 0; }
+
 /* Свёрнутое окно: анимации стоят, чтобы не тратить видеокарту */
 body.win-hidden *, body.win-hidden *::before, body.win-hidden *::after { animation-play-state: paused !important; }
 body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }

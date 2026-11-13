@@ -6,6 +6,27 @@ use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 use webview2_com::CapturePreviewCompletedHandler;
 
+/// Установленная копия приложения по записи установщика: (папка, версия).
+pub fn installed_copy() -> Option<(std::path::PathBuf, String)> {
+    use windows::core::{w, PCWSTR};
+    use windows::Win32::Foundation::ERROR_SUCCESS;
+    use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_SZ};
+    let key = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Zvuk Glass");
+    let read = |name: PCWSTR| -> Option<String> {
+        let mut buf = vec![0u16; 1024];
+        let mut size = (buf.len() * 2) as u32;
+        let r = unsafe { RegGetValueW(HKEY_CURRENT_USER, key, name, RRF_RT_REG_SZ, None, Some(buf.as_mut_ptr().cast()), Some(&mut size)) };
+        if r != ERROR_SUCCESS {
+            return None;
+        }
+        let n = (size as usize / 2).saturating_sub(1).min(buf.len());
+        Some(String::from_utf16_lossy(&buf[..n]).trim_end_matches('\0').to_string())
+    };
+    let dir = read(w!("InstallLocation"))?.trim().trim_matches('"').to_string();
+    let ver = read(w!("DisplayVersion"))?.trim().to_string();
+    (!dir.is_empty() && !ver.is_empty()).then(|| (std::path::PathBuf::from(dir), ver))
+}
+
 /// Версия установленного движка WebView2 (это Edge той же версии), например «142.0.3595.80».
 pub fn webview_version() -> Option<String> {
     let mut p = windows::core::PWSTR::null();
@@ -17,7 +38,7 @@ pub fn webview_version() -> Option<String> {
     }
     Some(webview2_com::take_pwstr(p))
 }
-use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG;
+use webview2_com::Microsoft::Web::WebView2::Win32::{COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_JPEG, COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG};
 use windows::core::BOOL;
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::Graphics::Gdi::{CreateBitmap, DeleteObject, HGDIOBJ};
@@ -185,16 +206,10 @@ pub fn capture_png(win: &WebviewWindow, out: std::path::PathBuf, done: impl FnOn
         let Some(stream) = SHCreateMemStream(None) else { return finish(Err("stream".into())) };
         let s2 = stream.clone();
         let handler = CapturePreviewCompletedHandler::create(Box::new(move |res| {
-            let r = res.map_err(|e| e.to_string()).and_then(|_| {
-                let mut stat = Default::default();
-                s2.Stat(&mut stat, STATFLAG_NONAME).map_err(|e| e.to_string())?;
-                s2.Seek(0, STREAM_SEEK_SET, None).map_err(|e| e.to_string())?;
-                let mut buf = vec![0u8; stat.cbSize as usize];
-                let mut read = 0u32;
-                let _ = s2.Read(buf.as_mut_ptr() as *mut _, buf.len() as u32, Some(&mut read));
-                buf.truncate(read as usize);
-                std::fs::write(&out, buf).map_err(|e| e.to_string())
-            });
+            let r = res
+                .map_err(|e| e.to_string())
+                .and_then(|_| read_stream(&s2).ok_or_else(|| "stream".to_string()))
+                .and_then(|buf| std::fs::write(&out, buf).map_err(|e| e.to_string()));
             finish(r);
             Ok(())
         }));
@@ -206,6 +221,85 @@ pub fn capture_png(win: &WebviewWindow, out: std::path::PathBuf, done: impl FnOn
     });
     if let Err(e) = r {
         eprintln!("capture failed: {e}");
+    }
+}
+
+unsafe fn read_stream(s: &windows::Win32::System::Com::IStream) -> Option<Vec<u8>> {
+    let mut stat = Default::default();
+    s.Stat(&mut stat, STATFLAG_NONAME).ok()?;
+    s.Seek(0, STREAM_SEEK_SET, None).ok()?;
+    let mut buf = vec![0u8; stat.cbSize as usize];
+    let mut read = 0u32;
+    let _ = s.Read(buf.as_mut_ptr() as *mut _, buf.len() as u32, Some(&mut read));
+    buf.truncate(read as usize);
+    Some(buf)
+}
+
+/// Снимок того, что уже нарисовано в окне (WebView2 CapturePreview, JPEG). Просто копирует готовый кадр —
+/// в отличие от снимка через DevTools с масштабом, который на миг перестраивает страницу и заметно «моргает».
+pub fn capture_jpeg(win: &WebviewWindow) -> tokio::sync::oneshot::Receiver<Option<Vec<u8>>> {
+    type Tx = std::sync::Arc<Mutex<Option<tokio::sync::oneshot::Sender<Option<Vec<u8>>>>>>;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let tx: Tx = std::sync::Arc::new(Mutex::new(Some(tx)));
+    let send = |tx: &Tx, v: Option<Vec<u8>>| {
+        if let Some(t) = tx.lock().unwrap().take() {
+            let _ = t.send(v);
+        }
+    };
+    let tx2 = tx.clone();
+    let r = win.with_webview(move |wv| unsafe {
+        let Ok(core) = wv.controller().CoreWebView2() else { return send(&tx2, None) };
+        let Some(stream) = SHCreateMemStream(None) else { return send(&tx2, None) };
+        let s2 = stream.clone();
+        let tx3 = tx2.clone();
+        let handler = CapturePreviewCompletedHandler::create(Box::new(move |res| {
+            send(&tx3, res.ok().and_then(|_| read_stream(&s2)));
+            Ok(())
+        }));
+        if core.CapturePreview(COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_JPEG, &stream, &handler).is_err() {
+            send(&tx2, None);
+        }
+    });
+    if r.is_err() {
+        send(&tx, None);
+    }
+    rx
+}
+
+/// Уменьшенная серая копия картинки (средствами Windows, WIC): ширина не больше `max_w`, байт на точку.
+pub fn gray_thumb(img: &[u8], max_w: u32) -> Option<(u32, u32, Vec<u8>)> {
+    use windows::Win32::Graphics::Imaging::{
+        CLSID_WICImagingFactory, GUID_WICPixelFormat8bppGray, IWICImagingFactory, IWICPalette, WICBitmapDitherTypeNone, WICBitmapInterpolationModeFant,
+        WICBitmapPaletteTypeCustom, WICDecodeMetadataCacheOnDemand,
+    };
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let f: IWICImagingFactory = CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER).ok()?;
+        let st = f.CreateStream().ok()?;
+        st.InitializeFromMemory(img).ok()?;
+        let dec = f.CreateDecoderFromStream(&st, std::ptr::null(), WICDecodeMetadataCacheOnDemand).ok()?;
+        let frame = dec.GetFrame(0).ok()?;
+        let (mut w, mut h) = (0u32, 0u32);
+        frame.GetSize(&mut w, &mut h).ok()?;
+        if w == 0 || h == 0 {
+            return None;
+        }
+        let tw = max_w.min(w).max(1);
+        let th = ((h as u64 * tw as u64) / w as u64).max(1) as u32;
+        let sc = f.CreateBitmapScaler().ok()?;
+        sc.Initialize(&frame, tw, th, WICBitmapInterpolationModeFant).ok()?;
+        let cv = f.CreateFormatConverter().ok()?;
+        cv.Initialize(&sc, &GUID_WICPixelFormat8bppGray, WICBitmapDitherTypeNone, None::<&IWICPalette>, 0.0, WICBitmapPaletteTypeCustom).ok()?;
+        let stride = (tw + 3) & !3;
+        let mut buf = vec![0u8; (stride * th) as usize];
+        cv.CopyPixels(std::ptr::null(), stride, &mut buf).ok()?;
+        let mut out = Vec::with_capacity((tw * th) as usize);
+        for y in 0..th as usize {
+            let s = y * stride as usize;
+            out.extend_from_slice(&buf[s..s + tw as usize]);
+        }
+        Some((tw, th, out))
     }
 }
 

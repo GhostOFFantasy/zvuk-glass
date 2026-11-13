@@ -14,6 +14,10 @@
     Delete "$R9\Uninstall Zvuk Glass.exe"
     RMDir /r "$R9"
   ${EndIf}
+  ; запись «Zvuk Glass 1.0.0» в «Программах и компонентах», если самой программы уже нет
+  ${IfNot} ${FileExists} "$R9\Uninstall Zvuk Glass.exe"
+    DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\d07f8623-6ecd-5c41-9bb8-5cf32cdfa91c"
+  ${EndIf}
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL

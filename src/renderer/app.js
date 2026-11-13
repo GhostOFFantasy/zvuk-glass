@@ -153,6 +153,7 @@
     applySections();
     Player.init(App.settings);
     bindPlayer();
+    Ink.start();
     Custom.setTrackTheme(null);
     // Мини-визуализатор на фоне панели плеера
     // 30 кадров/с, обычная чёткость и мягкий стиль — фоновой полоске больше не нужно
@@ -907,16 +908,62 @@
     const t = Player.current;
     if (!t) return renderLyricsAll();
     if (App.lyrics.trackId === t.id && (App.lyrics.data || App.lyrics.loading)) return;
-    App.lyrics = { trackId: t.id, data: null, loading: true };
+    const offset = lyrOffset(t.id);
+    App.lyrics = { trackId: t.id, data: null, loading: true, source: 'zvuk', offset };
     renderLyricsAll();
     let data = null;
+    let source = 'zvuk';
     try {
       data = parseLyrics(await api('getLyrics', t.id));
     } catch {}
     if (App.lyrics.trackId !== t.id) return;
-    App.lyrics = { trackId: t.id, data: data || 'none', loading: false };
+    // В Zvuk текста нет или он без времени строк — ищем синхронизированный в открытой базе LRCLIB
+    if ((!data || !data.synced) && App.settings.lyrics?.external !== false) {
+      // пока ищем, обычный текст из Zvuk уже виден
+      App.lyrics = { trackId: t.id, data, loading: !data, searching: true, source, offset };
+      lastLine = -2;
+      renderLyricsAll();
+      const ext = await window.zvuk.lyrics.external(t);
+      if (App.lyrics.trackId !== t.id) return;
+      const parsed = ext && ext.text ? parseLyrics({ text: ext.text }) : null;
+      if (parsed && (parsed.synced || !data)) {
+        data = parsed;
+        source = 'lrclib';
+      }
+    }
+    App.lyrics = { trackId: t.id, data: data || 'none', loading: false, source, offset };
     lastLine = -2;
     renderLyricsAll();
+  }
+  // Сдвиг времени текста для трека (если строки спешат или отстают): хранится на этом компьютере
+  function lyrOffset(id) {
+    try {
+      return parseFloat(localStorage.getItem('zg.lyrOff.' + id)) || 0;
+    } catch {
+      return 0;
+    }
+  }
+  function nudgeLyrics(d) {
+    const L = App.lyrics;
+    if (!L.trackId) return;
+    L.offset = Math.round(((L.offset || 0) + d) * 100) / 100;
+    if (Math.abs(L.offset) > 30) L.offset = Math.sign(L.offset) * 30;
+    try {
+      if (L.offset) localStorage.setItem('zg.lyrOff.' + L.trackId, String(L.offset));
+      else localStorage.removeItem('zg.lyrOff.' + L.trackId);
+    } catch {}
+    for (const v of $$('.lyr-off b')) v.textContent = fmtOff(L.offset);
+    lastLine = -2;
+    syncLyrics(Player.audio.currentTime);
+  }
+  const fmtOff = (v) => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v || 0).toFixed(2).replace('.', ',') + ' с';
+  /** Подпись источника над текстом из LRCLIB и подстройка времени строк. */
+  function lyrSource(L) {
+    if (L.source !== 'lrclib' || !L.data || L.data === 'none') return '';
+    const sync = L.data.synced
+      ? `<div class="lyr-off" title="Если строки спешат или отстают от песни"><button data-act="lyr-off" data-d="-0.25" title="Показывать строки раньше на 0,25 с">−</button><b>${fmtOff(L.offset)}</b><button data-act="lyr-off" data-d="0.25" title="Показывать строки позже на 0,25 с">+</button></div>`
+      : '';
+    return `<div class="lyr-src">${icon('globe')}<span>${L.data.synced ? 'Текст из LRCLIB' : 'Текст из LRCLIB · без привязки ко времени'}</span>${sync}</div>`;
   }
   function renderLyricsAll() {
     if (App.panel === 'lyrics') renderLyricsInto($('#spBody'));
@@ -924,12 +971,17 @@
   }
   function renderLyricsInto(el) {
     const L = App.lyrics;
+    // в полноэкранном плеере подпись источника стоит над текстом, вне зоны затухания
+    const inNp = el.id === 'npLyrics';
+    const src = Player.current && L.data ? lyrSource(L) : '';
+    if (inNp) $('#npLyrSrc').innerHTML = src;
+    const head = inNp ? '' : src;
     if (!Player.current) el.innerHTML = `<div class="empty">${icon('lyrics')}<div>Включите трек, чтобы увидеть текст</div></div>`;
-    else if (L.loading || !L.data) el.innerHTML = `<div class="empty">${icon('lyrics')}<div>Загружаем текст…</div></div>`;
+    else if (L.loading || !L.data) el.innerHTML = `<div class="empty">${icon('lyrics')}<div>${L.searching ? 'В Zvuk текста нет — ищем в LRCLIB…' : 'Загружаем текст…'}</div></div>`;
     else if (L.data === 'none') el.innerHTML = `<div class="empty">${icon('lyrics')}<div>Для этого трека нет текста</div></div>`;
     else if (L.data.synced)
-      el.innerHTML = `<div class="lyrics">${L.data.lines.map((l, i) => `<div class="ln" data-act="lyric-seek" data-t="${l.t}" data-li="${i}">${esc(l.text || '♪')}</div>`).join('')}</div>`;
-    else el.innerHTML = `<div class="lyrics plain">${esc(L.data.text)}</div>`;
+      el.innerHTML = `${head}<div class="lyrics">${L.data.lines.map((l, i) => `<div class="ln" data-act="lyric-seek" data-t="${l.t}" data-li="${i}">${esc(l.text || '♪')}</div>`).join('')}</div>`;
+    else el.innerHTML = `${head}<div class="lyrics plain">${esc(L.data.text)}</div>`;
     lastLine = -2;
     syncLyrics(Player.audio.currentTime);
   }
@@ -940,6 +992,7 @@
     const L = App.lyrics.data;
     if (!L || L === 'none' || !L.synced) return;
     if (App.panel !== 'lyrics' && !lyricsInNp()) return;
+    cur -= App.lyrics.offset || 0; // сдвиг: строки показываются позже (+) или раньше (−)
     let idx = -1;
     let lo = 0, hi = L.lines.length - 1;
     while (lo <= hi) {
@@ -1153,9 +1206,22 @@
         Player.clearUpcoming();
         break;
       case 'lyric-seek':
-        Player.seek(+d.t);
+        Player.seek(+d.t + (App.lyrics.offset || 0));
         userScrollAt = 0;
         break;
+      case 'lyr-off':
+        nudgeLyrics(+d.d);
+        break;
+      case 'lyrics-ext': {
+        const on = !(App.settings.lyrics?.external !== false);
+        App.settings.lyrics = { ...(App.settings.lyrics || {}), external: on };
+        window.zvuk.settings.set({ lyrics: App.settings.lyrics });
+        el.classList.toggle('on', on);
+        // текущий трек перечитаем с новым режимом
+        App.lyrics = { trackId: null, data: null, loading: false };
+        if (App.panel === 'lyrics' || lyricsInNp()) loadLyrics();
+        break;
+      }
       case 'nowplaying':
         openNowPlaying();
         break;
@@ -1740,6 +1806,92 @@
         await M(tr.left + tr.width / 2, tr.top + tr.height * 0.7);
         await wait(400);
       }
+    } else if (extra === 'ink' || extra === 'inkclip') {
+      // «Чернила»: элементы над светлым фоном темнеют, над тёмным — остаются светлыми
+      const name = (el) => el.id || [...el.classList].filter((c) => c !== 'inkable').slice(0, 2).join('.');
+      const report = (tag) => console.warn(`SELFTEST ink ${tag}: ` + Ink.state.map((s) => `${name(s.el)}=${s.luma.toFixed(2)}${s.target ? '●' : '○'}`).join(' '));
+      if (extra === 'inkclip') {
+        App.settings.viz.bg = 'clip';
+        App.settings.viz.style = 'waves';
+      }
+      await silentPlay(2);
+      NP.vizOn = true;
+      openNowPlaying();
+      await wait(2000);
+      if (extra === 'ink') {
+        const fake = document.createElement('div');
+        fake.className = 'vz-img';
+        fake.style.cssText = 'position:absolute;inset:0;background:linear-gradient(90deg,#f2f2f2 0 50%,#0e0e12 50% 100%)';
+        $('#nowPlaying .vz-media').appendChild(fake);
+        await wait(2500);
+        report('split');
+        fake.style.background = '#f4f4f4';
+        await wait(2000);
+        console.warn(`SELFTEST ink white: dark=${Ink.state.filter((s) => s.target).length}/${Ink.state.length} orb=${getComputedStyle($('#npPlay')).color}`);
+        fake.style.background = 'linear-gradient(90deg,#f2f2f2 0 50%,#0e0e12 50% 100%)';
+        await wait(2200);
+      } else {
+        await Clip.setLink('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+        await wait(9000);
+        const box = $('#nowPlaying .clip-box');
+        const r = box ? box.getBoundingClientRect() : null;
+        const on = await Ink.debugLuma(r);
+        const frame = $('#nowPlaying .clip-frame, #nowPlaying .clip-box iframe');
+        if (frame) frame.style.visibility = 'hidden';
+        await wait(400);
+        const off = await Ink.debugLuma(r);
+        if (frame) frame.style.visibility = '';
+        let resizes = 0;
+        const onRs = () => resizes++;
+        window.addEventListener("resize", onRs);
+        window.visualViewport && window.visualViewport.addEventListener("resize", onRs);
+        const t0 = performance.now();
+        for (let k = 0; k < 10; k++) await window.zvuk.ui.probe(240);
+        console.warn(`SELFTEST inkclip: clipOn=${box && box.classList.contains('clip-on')} lumaWithClip=${on && on.mean.toFixed(3)} lumaHidden=${off && off.mean.toFixed(3)} size=${on && on.size} probeMs=${((performance.now() - t0) / 10).toFixed(1)} resizesDuringProbes=${resizes}`);
+        await wait(1500);
+        report('clip');
+      }
+    } else if (extra === 'lyrext') {
+      // Тексты: сколько треков чарта без синхронизированного текста в Zvuk и сколько из них нашлось в LRCLIB
+      const pop = await api('popular');
+      const tracks = (pop.top?.tracks || []).slice(0, 25);
+      const stat = { synced: 0, plain: 0, none: 0, extSynced: 0, extPlain: 0, extNone: 0 };
+      let sample = null;
+      for (const t of tracks) {
+        let z = null;
+        try {
+          z = parseLyrics(await api('getLyrics', t.id));
+        } catch {}
+        if (z && z.synced) {
+          stat.synced++;
+          continue;
+        }
+        stat[z ? 'plain' : 'none']++;
+        const ext = await window.zvuk.lyrics.external(t);
+        const p = ext && ext.text ? parseLyrics({ text: ext.text }) : null;
+        if (p && p.synced) {
+          stat.extSynced++;
+          if (!sample) sample = { t, p };
+        } else stat[p ? 'extPlain' : 'extNone']++;
+      }
+      console.warn(`SELFTEST lyrext chart25: ${JSON.stringify(stat)}`);
+      // показываем найденный текст в полноэкранном плеере и сдвигаем время
+      const t = sample ? sample.t : tracks[0];
+      Player.playList([t], 0, { kind: 'list', title: 'Тест' });
+      AudioFX.setVolume(0);
+      Player._applyVolume = () => AudioFX.setVolume(0);
+      if (sample) App.lyrics = { trackId: t.id, data: sample.p, loading: false, source: 'lrclib', offset: 0 };
+      NP.lyricsOn = true;
+      NP.vizOn = false;
+      openNowPlaying();
+      await wait(3000);
+      const lineAt = () => $$('#npLyrics .ln').findIndex((x) => x.classList.contains('cur'));
+      const before = lineAt();
+      $('#npLyrSrc [data-act="lyr-off"][data-d="0.25"]')?.click();
+      $('#npLyrSrc [data-act="lyr-off"][data-d="0.25"]')?.click();
+      await wait(300);
+      console.warn(`SELFTEST lyrext show: track=${t.title} lines=${sample ? sample.p.lines.length : 0} src=${$('#npLyrSrc .lyr-src span:not(.i)')?.textContent} offset=${$('#npLyrSrc .lyr-off b')?.textContent} curLine=${before}->${lineAt()} t=${Player.audio.currentTime.toFixed(1)}`);
+      await wait(1500);
     } else if (extra === 'artistpop') {
       const rows = () => $$('#popTracks .tr').length;
       const btn = () => $('#popSec .pop-more [data-act="expand-pop"]');
