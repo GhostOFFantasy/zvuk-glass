@@ -5,6 +5,7 @@ mod clips;
 mod crypt;
 mod media;
 mod store;
+mod sync;
 mod updates;
 mod winx;
 mod zvuk;
@@ -66,6 +67,7 @@ struct App {
     profile: Mutex<Option<Profile>>,
     auth_ready: watch::Receiver<bool>,
     clips: clips::Clips,
+    sync: sync::Sync,
     streams: media::Streams,
     updates: Arc<updates::Updates>,
     shot_taken: AtomicBool,
@@ -343,12 +345,23 @@ async fn yt_find(app: S<'_>, track: Value, force: Option<bool>) -> Result<Value,
 fn yt_update(app: S<'_>, track_id: Value, patch: Value) -> Value {
     let id = zvuk::id_str(&track_id);
     let mut e = app.clips.get(&id).unwrap_or_else(|| json!({ "cands": [], "pick": null, "manual": null, "offset": 0, "at": clips::now_ms() }));
-    for k in ["pick", "manual", "offset"] {
+    for k in ["pick", "manual", "offset", "auto"] {
         if let Some(v) = patch.get(k) {
             e[k] = v.clone();
         }
     }
     app.clips.set(&id, e)
+}
+
+// ---------- Автосинхронизация клипа ----------
+#[tauri::command]
+async fn sync_prepare(app: S<'_>, track_id: Value) -> Result<Value, ApiError> {
+    app.sync.prepare(&app.client, &zvuk::id_str(&track_id)).await
+}
+
+#[tauri::command]
+async fn sync_measure(app: S<'_>, track_id: Value, seconds: f64, lo: f64, hi: f64) -> Result<Value, ApiError> {
+    app.sync.measure(&zvuk::id_str(&track_id), seconds, lo, hi).await
 }
 
 #[tauri::command]
@@ -579,6 +592,15 @@ fn main() {
         diag(&dir);
         return;
     }
+    // служебно: проверка захвата звука с устройства вывода (--diag-capture)
+    if let Some(d) = std::env::args().find_map(|a| a.strip_prefix("--diag-match=").map(String::from)) {
+        println!("{}", sync::diag_match(std::path::Path::new(&d)));
+        return;
+    }
+    if std::env::args().any(|a| a == "--diag-capture") {
+        println!("capture: {}", sync::diag_capture(3.0));
+        return;
+    }
     // служебно: расшифровать строку, зашифрованную Electron safeStorage (из файла), — проверка совместимости
     if let Some(f) = std::env::args().find_map(|a| a.strip_prefix("--diag-probe=").map(String::from)) {
         let b64 = std::fs::read_to_string(f).unwrap_or_default();
@@ -595,6 +617,7 @@ fn main() {
     let app = Arc::new(App {
         updates: Arc::new(updates::Updates::new(shot && args.updtest)),
         clips: clips::Clips::new(&dir),
+        sync: sync::Sync::new(),
         streams: media::Streams::new(),
         client: ZvukClient::new(),
         profile: Mutex::new(None),
@@ -656,6 +679,8 @@ fn main() {
             yt_update,
             yt_clear_cache,
             yt_parse,
+            sync_prepare,
+            sync_measure,
             update_state,
             update_check,
             update_install,
@@ -681,7 +706,8 @@ fn main() {
             if shot {
                 // страховка: служебный запуск не висит вечно
                 let h = handle.clone();
-                let limit = if app.args.updtest { 300 } else { 60 };
+                let long = app.args.updtest || app.args.extra.as_deref().is_some_and(|e| e.starts_with("clipsync"));
+                let limit = if long { 300 } else { 60 };
                 std::thread::spawn(move || {
                     std::thread::sleep(Duration::from_secs(limit));
                     println!("SCREENSHOT_TIMEOUT");

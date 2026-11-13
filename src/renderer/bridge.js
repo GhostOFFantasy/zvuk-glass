@@ -67,6 +67,11 @@
       clearCache: () => invoke('yt_clear_cache'),
       parse: (text) => invoke('yt_parse', { text: String(text || '') }),
     },
+    // автосинхронизация клипа по звуку
+    sync: {
+      prepare: (trackId) => invoke('sync_prepare', { trackId: String(trackId) }),
+      measure: (trackId, seconds, lo, hi) => invoke('sync_measure', { trackId: String(trackId), seconds, lo, hi }),
+    },
     update: {
       state: () => invoke('update_state'),
       check: () => invoke('update_check'),

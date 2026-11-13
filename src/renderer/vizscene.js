@@ -38,6 +38,28 @@
     return { ...common, style: 'orbit', centerFn };
   }
 
+  /** Автосинхронизация по звуку: переключатель и состояние. */
+  function autoBlock() {
+    const on = Clip.auto;
+    const s = Clip.sync;
+    const a = Clip.autoInfo;
+    let line = '';
+    if (on) {
+      if (s.state === 'run') line = `<div class="vz-sync run"><i></i>${esc(s.message)}</div>`;
+      else if (s.state === 'fail') line = `<div class="vz-sync err">${esc(s.message)}</div>`;
+      else if (s.state === 'wait') line = `<div class="vz-sync">${esc(s.message)}</div>`;
+      else if (a) line = `<div class="vz-sync ok">${icon('check')}Подстроено по звуку · точность около 0,03 с</div>`;
+      else line = '<div class="vz-sync">Подстройка начнётся, когда пойдёт клип: около 10 секунд, на пару секунд звук пойдёт из клипа. Другие звуки на компьютере лучше приглушить.</div>';
+    }
+    const busy = s.state === 'run';
+    return `<div class="vz-auto">
+      <div class="vz-auto-row"><button class="switch${on ? ' on' : ''}" data-vclip="auto"${busy ? ' disabled' : ''}></button>
+        <span>Автосинхронизация<small>губы в такт: сдвиг по звуку клипа</small></span>
+        ${on && !busy && (a || s.state === 'fail') ? `<button class="btn small" data-vclip="recal" title="Измерить заново">${icon('refresh')}</button>` : ''}</div>
+      ${line}
+    </div>`;
+  }
+
   /** Блок «Клип» в панели настроек сцены. */
   function clipBlock() {
     const st = Clip.status;
@@ -58,8 +80,9 @@
         ${st === 'ok' && info ? `<button class="btn small" data-vclip="open" title="Открыть на YouTube">${icon('external')}</button>` : ''}
         ${st === 'nokey' ? `<button class="btn small primary" data-vclip="settings">${icon('settings')}Ключ</button>` : ''}
       </div>
-      ${st === 'ok' ? `<div class="vz-offset" title="Если клип опережает или отстаёт от музыки"><span>Сдвиг</span>
-        <button class="btn small" data-vclip="minus">−1 с</button><b>${off > 0 ? '+' : ''}${off.toFixed(1)} с</b><button class="btn small" data-vclip="plus">+1 с</button></div>` : ''}
+      ${st === 'ok' ? autoBlock() : ''}
+      ${st === 'ok' ? `<div class="vz-offset${Clip.auto ? ' locked' : ''}" title="${Clip.auto ? 'Недоступно, пока включена автосинхронизация' : 'Если клип опережает или отстаёт от музыки'}"><span>Сдвиг</span>
+        <button class="btn small" data-vclip="minus"${Clip.auto ? ' disabled' : ''}>−1 с</button><b>${off > 0 ? '+' : ''}${off.toFixed(Clip.auto && Clip.autoInfo ? 2 : 1)} с</b><button class="btn small" data-vclip="plus"${Clip.auto ? ' disabled' : ''}>+1 с</button></div>` : ''}
       <div class="vz-q">
         <div class="vz-q-head"><span>Качество клипа</span>${Clip.actualQuality ? `<small title="Что YouTube показывает сейчас">сейчас ${esc(Clip.actualQuality)}</small>` : ''}</div>
         <div class="vz-q-opts">${Clip.QLIST.map(([id, label]) => `<button class="vz-qb${Clip.quality === id ? ' on' : ''}" data-vclipq="${id}">${label}</button>`).join('')}</div>
@@ -184,7 +207,11 @@
         const cb = e.target.closest('[data-vclip]');
         if (cb) {
           const a = cb.dataset.vclip;
-          if (a === 'next') await Clip.next();
+          if (a === 'auto') {
+            Clip.setAuto(!Clip.auto);
+            if (Clip.auto) toast('Автосинхронизация: на пару секунд звук пойдёт из клипа', { iconName: 'sparkle', ms: 2600 });
+          } else if (a === 'recal') Clip.calibrate(true);
+          else if (a === 'next') await Clip.next();
           else if (a === 'minus') await Clip.shift(-1);
           else if (a === 'plus') await Clip.shift(1);
           else if (a === 'open' && Clip.info) window.zvuk.openZvuk(`https://www.youtube.com/watch?v=${Clip.info.id}`);
