@@ -1,6 +1,6 @@
 [package]
 name = "zvuk-glass"
-version = "2.2.1"
+version = "2.2.3"
 description = "Zvuk Glass — неофициальный плеер для Zvuk"
 authors = ["GhostOFFantasy"]
 edition = "2021"
