@@ -248,9 +248,11 @@
       // после анимации появления прячем интерфейс под плеером, чтобы он не отрисовывался
       clearTimeout(openTimer);
       openTimer = setTimeout(() => this.isOpen && document.body.classList.add('np-open'), 520);
+      if (window.ClipOffer) ClipOffer.npOpened(); // предложить клип и подстройку
     },
     close() {
       this.closeEq();
+      if (window.ClipOffer) ClipOffer.hide();
       clearTimeout(openTimer);
       document.body.classList.remove('np-open');
       root.classList.add('closing');

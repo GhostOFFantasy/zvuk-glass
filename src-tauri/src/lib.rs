@@ -396,13 +396,24 @@ fn yt_clear_key(app: S<'_>) -> bool {
 
 /// track: { id, title, artists: [названия], duration }. force — искать заново.
 #[tauri::command]
-async fn yt_find(app: S<'_>, track: Value, force: Option<bool>) -> Result<Value, ApiError> {
+async fn yt_find(app: S<'_>, track: Value, force: Option<bool>, cached: Option<bool>) -> Result<Value, ApiError> {
     let id = zvuk::id_str(&track["id"]);
     let prev = app.clips.get(&id);
+    // клип не нашёлся прежним подбором — один раз ищем заново улучшенным
+    let stale = prev
+        .as_ref()
+        .is_some_and(|p| p["pick"].is_null() && p["manual"].is_null() && p.get("v").and_then(Value::as_i64) != Some(clips::SEARCH_V));
     if let Some(p) = &prev {
-        if !force.unwrap_or(false) {
+        if !force.unwrap_or(false) && !stale {
             return Ok(p.clone());
         }
+    }
+    // только из кэша (уведомление о клипе): не тратим квоту YouTube на треки, которые просто слушают
+    if cached.unwrap_or(false) {
+        return Ok(match prev {
+            Some(p) if !stale => p,
+            _ => json!({ "uncached": true }),
+        });
     }
     let Some(key) = app.store.read_secret("ytKey") else {
         let mut r = prev.unwrap_or(json!({}));
@@ -410,13 +421,14 @@ async fn yt_find(app: S<'_>, track: Value, force: Option<bool>) -> Result<Value,
         return Ok(r);
     };
     let cands = app.clips.search(&key, &track).await?;
-    let pick = if cands.first().and_then(|c| c["score"].as_i64()).unwrap_or(-99) >= 4 { json!(0) } else { Value::Null };
+    let pick = clips::pick_index(&cands);
     let prev = prev.unwrap_or(json!({}));
     let entry = json!({
         "cands": cands, "pick": pick,
         "manual": prev.get("manual").cloned().unwrap_or(Value::Null),
         "offset": prev.get("offset").cloned().unwrap_or(json!(0)),
         "at": clips::now_ms(),
+        "v": clips::SEARCH_V,
     });
     Ok(app.clips.set(&id, entry))
 }
@@ -450,6 +462,12 @@ async fn lyrics_external(app: S<'_>, id: Value, artist: String, title: String, d
 #[tauri::command]
 async fn sync_prepare(app: S<'_>, track_id: Value) -> Result<Value, ApiError> {
     app.sync.prepare(&app.client, &zvuk::id_str(&track_id)).await
+}
+
+/// Устройство вывода звука сейчас (для запомненной задержки тракта).
+#[tauri::command]
+async fn sync_device() -> String {
+    sync::output_device().await
 }
 
 #[tauri::command]
@@ -624,6 +642,23 @@ fn create_window(handle: &AppHandle, app: &Arc<App>) -> tauri::Result<WebviewWin
         .build()
 }
 
+/// Внутри плеера YouTube (фрейм клипа): прячем всё, кроме самого видео — кнопку паузы и полоску,
+/// которые YouTube показывает при каждом запуске и перемотке даже без элементов управления. Тогда клип
+/// можно показывать сразу, а не ждать, пока YouTube уберёт их сам. Приложению сообщаем, что стиль на месте.
+const YT_FRAME_JS: &str = r#"(function () {
+  if (!/(^|\.)youtube(-nocookie)?\.com$/.test(location.hostname) || location.pathname.indexOf('/embed/') !== 0) return;
+  // новый интерфейс встроенного плеера (слой #player-controls поверх видео) и классический (.ytp-*)
+  var css = '#player-controls, .ytPlayerControlsContainerHost, ytm-custom-control, #player-control-overlay,'
+    + ' .html5-video-player > :not(.html5-video-container) { opacity: 0 !important; pointer-events: none !important; transition: none !important; }';
+  var add = function () {
+    var s = document.createElement('style');
+    s.textContent = css;
+    (document.head || document.documentElement).appendChild(s);
+    try { parent.postMessage(JSON.stringify({ event: 'zgChrome' }), '*'); } catch (e) {}
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', add); else add();
+})();"#;
+
 #[cfg(desktop)]
 fn create_window(handle: &AppHandle, app: &Arc<App>) -> tauri::Result<WebviewWindow> {
     let a = &app.args;
@@ -651,6 +686,7 @@ fn create_window(handle: &AppHandle, app: &Arc<App>) -> tauri::Result<WebviewWin
         .disable_drag_drop_handler()
         .zoom_hotkeys_enabled(false)
         .initialization_script(init_script(a))
+        .initialization_script_for_all_frames(YT_FRAME_JS)
         .on_navigation({
             let h = handle.clone();
             move |url| navigation_allowed(&h, url)
@@ -892,6 +928,7 @@ pub fn run() {
             yt_parse,
             sync_prepare,
             sync_measure,
+            sync_device,
             update_state,
             update_check,
             update_install,

@@ -1152,6 +1152,25 @@ body.paused .viz-disc img { animation-play-state: paused; }
 .wn-item b { display: block; font-size: 14.5px; margin: 1px 0 3px; }
 .wn-item p { margin: 0; color: var(--text-2); font-size: 13px; line-height: 1.45; }
 .wn-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 14px; }
+
+/* Предложение включить клип и подстройку по звуку — карточка справа сверху */
+.clip-offer { position: fixed; top: 54px; right: 18px; z-index: 65; width: min(340px, calc(100vw - 36px)); padding: 12px 12px 10px; border-radius: 18px; animation: coIn 0.45s var(--spring); -webkit-app-region: no-drag; }
+.clip-offer.out { animation: coOut 0.26s ease forwards; }
+@keyframes coIn { from { opacity: 0; transform: translateY(-10px) scale(0.97); } }
+@keyframes coOut { to { opacity: 0; transform: translateY(-8px) scale(0.98); } }
+.co-head { display: flex; align-items: center; gap: 10px; }
+.co-mark { width: 34px; height: 34px; flex: none; border-radius: 11px; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 35%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.4); }
+.co-mark .i { width: 18px; height: 18px; }
+.co-tt { flex: 1; min-width: 0; }
+.co-tt b { display: block; font-size: 14.5px; }
+.co-tt span { display: block; font-size: 12.5px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.co-list { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.co-item { display: flex; gap: 10px; padding: 9px 10px; border-radius: 12px; background: rgba(255, 255, 255, 0.05); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06); }
+.co-ic { width: 26px; height: 26px; flex: none; border-radius: 8px; display: grid; place-items: center; color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.co-ic .i { width: 15px; height: 15px; }
+.co-item b { display: block; font-size: 13px; margin: 1px 0 2px; }
+.co-item p { margin: 0; font-size: 12px; line-height: 1.4; color: var(--text-2); }
+.co-foot { display: flex; justify-content: flex-end; gap: 8px; }
 body.design-classic .wn-item { background: #24242b; }
 .eq-options { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; margin-top: 18px; }
 .eq-options .opt { display: flex; align-items: center; gap: 10px; color: var(--text-2); font-weight: 600; }
@@ -1457,9 +1476,10 @@ body.sb-anim .sidebar { position: fixed; z-index: 25; margin: 0; }
   /* «как обложка»: заполняем область 16:9, лишнее и подписи YouTube уходят за край */
   width: max(100cqw, 177.78cqh); height: max(100cqh, 56.25cqw);
   transform: translate(-50%, -50%) scale(1.24);
-  opacity: 0; transition: opacity 0.8s ease;
+  /* прячется быстро (кнопка YouTube после перемотки не успевает мелькнуть), появляется плавно */
+  opacity: 0; transition: opacity 0.15s ease;
 }
-.clip-box.clip-on .clip-frame { opacity: 1; }
+.clip-box.clip-on .clip-frame { opacity: 1; transition: opacity 0.8s ease; }
 .vz-clip { margin-top: 10px; padding: 10px 12px; border-radius: var(--r-s); background: rgba(255, 255, 255, 0.05); font-size: 12.5px; line-height: 1.35; color: var(--text-2); }
 .vz-clip b { display: block; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vz-clip span { display: block; color: var(--text-3); }
