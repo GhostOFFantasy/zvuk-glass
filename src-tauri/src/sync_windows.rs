@@ -124,44 +124,53 @@ fn features(mono: &[f32], rate: u32) -> Frames {
 /// Ищет запись (query) внутри опорного трека в диапазоне сдвигов [lo, hi] (в кадрах).
 /// Возвращает (сдвиг с долями кадра, уверенность — корреляция по хроме, лучшая хрома в другом месте песни).
 fn best_match(q: &Frames, r: &Frames, lo: isize, hi: isize) -> Option<(f64, f32, f32)> {
-    // 1) грубо — по хроме: аккорды отличают одно место песни от другого (атаки повторяются каждый такт)
-    let chroma_only = |f: &Frames| -> Frames {
-        f.iter()
-            .map(|x| {
-                let mut y = *x;
-                y[..NF].iter_mut().for_each(|v| *v = 0.0);
-                y
-            })
-            .collect()
-    };
-    let (clo, cs) = ncc_scores(&chroma_only(q), &chroma_only(r), lo, hi)?;
-    let (ci, &cbest) = cs.iter().enumerate().max_by(|a, b| a.1.total_cmp(b.1))?;
-    let csecond = cs
-        .iter()
-        .enumerate()
-        .filter(|(k, _)| (*k as isize - ci as isize).abs() > 50)
-        .map(|(_, s)| *s)
-        .fold(f32::MIN, f32::max)
-        .max(0.0);
-    // 2) точно — по всему отпечатку (атаки дают миллисекунды) в окрестности ±0,25 с
-    let center = clo + ci as isize;
-    let (flo, fs) = ncc_scores(q, r, center - 25, center + 25)?;
-    let (fi, &fbest) = fs.iter().enumerate().max_by(|a, b| a.1.total_cmp(b.1))?;
-    // уточнение пика параболой — доли кадра (миллисекунды)
-    let mut frac = 0f64;
-    if fi > 0 && fi + 1 < fs.len() {
-        let (y0, y1, y2) = (fs[fi - 1] as f64, fbest as f64, fs[fi + 1] as f64);
-        let den = y0 - 2.0 * y1 + y2;
-        if den.abs() > 1e-9 {
-            frac = (0.5 * (y0 - y2) / den).clamp(-0.5, 0.5);
-        }
-    }
-    // уверенность — по грубому этапу (насколько это место лучше любого другого в песне)
-    Some(((flo + fi as isize) as f64 + frac, cbest, csecond))
+    let c = matches(q, r, lo, hi, 2);
+    let (lag, score) = *c.first()?;
+    Some((lag, score, c.get(1).map(|x| x.1).unwrap_or(0.0).max(0.0)))
 }
 
-/// Нормированная взаимная корреляция записи с треком для каждого сдвига в [lo, hi].
-fn ncc_scores(q: &Frames, r: &Frames, lo: isize, hi: isize) -> Option<(isize, Vec<f32>)> {
+/// Несколько лучших мест трека для записи (не ближе 0,5 с друг к другу), лучшие первыми:
+/// (сдвиг с долями кадра, корреляция по хроме). Повторяющийся припев или вступление из одного
+/// аккорда дают несколько почти равных мест — какое из них верное, решает сверка нескольких замеров.
+fn matches(q: &Frames, r: &Frames, lo: isize, hi: isize, k: usize) -> Vec<(f64, f32)> {
+    // 1) грубо — по хроме: аккорды отличают одно место песни от другого (атаки повторяются каждый такт)
+    let Some((clo, cs)) = ncc_scores(q, r, lo, hi, NF..NB) else { return vec![] };
+    let mut idx: Vec<usize> = (0..cs.len()).collect();
+    idx.sort_unstable_by(|a, b| cs[*b].total_cmp(&cs[*a]));
+    let mut peaks: Vec<usize> = Vec::with_capacity(k);
+    for i in idx {
+        if peaks.len() == k {
+            break;
+        }
+        if peaks.iter().all(|p| (*p as isize - i as isize).abs() > 50) {
+            peaks.push(i);
+        }
+    }
+    peaks
+        .into_iter()
+        .filter_map(|ci| {
+            // 2) точно — по всему отпечатку (атаки дают миллисекунды) в окрестности ±0,25 с
+            let center = clo + ci as isize;
+            let (flo, fs) = ncc_scores(q, r, center - 25, center + 25, 0..NB)?;
+            let (fi, &fbest) = fs.iter().enumerate().max_by(|a, b| a.1.total_cmp(b.1))?;
+            // уточнение пика параболой — доли кадра (миллисекунды)
+            let mut frac = 0f64;
+            if fi > 0 && fi + 1 < fs.len() {
+                let (y0, y1, y2) = (fs[fi - 1] as f64, fbest as f64, fs[fi + 1] as f64);
+                let den = y0 - 2.0 * y1 + y2;
+                if den.abs() > 1e-9 {
+                    frac = (0.5 * (y0 - y2) / den).clamp(-0.5, 0.5);
+                }
+            }
+            // уверенность — по грубому этапу (насколько это место похоже по аккордам)
+            Some(((flo + fi as isize) as f64 + frac, cs[ci]))
+        })
+        .collect()
+}
+
+/// Нормированная взаимная корреляция записи с треком для каждого сдвига в [lo, hi]
+/// по измерениям отпечатка `dims` (хрома — `NF..NB`, весь отпечаток — `0..NB`).
+fn ncc_scores(q: &Frames, r: &Frames, lo: isize, hi: isize, dims: std::ops::Range<usize>) -> Option<(isize, Vec<f32>)> {
     let n = q.len();
     if n < 50 || r.len() < n {
         return None;
@@ -171,26 +180,29 @@ fn ncc_scores(q: &Frames, r: &Frames, lo: isize, hi: isize) -> Option<(isize, Ve
     if lo > hi {
         return None;
     }
+    let (d0, d1) = (dims.start, dims.end);
     // запись: центрируем каждую полосу и нормируем целиком
     let mut qz = q.clone();
-    for b in 0..NB {
+    for b in d0..d1 {
         let m = q.iter().map(|f| f[b]).sum::<f32>() / n as f32;
         for f in qz.iter_mut() {
             f[b] -= m;
         }
     }
-    let qn = qz.iter().flat_map(|f| f.iter()).map(|x| x * x).sum::<f32>().sqrt();
+    let qn = qz.iter().flat_map(|f| f[d0..d1].iter()).map(|x| x * x).sum::<f32>().sqrt();
     if qn < 1e-6 {
         return None;
     }
-    // префиксные суммы опорного трека для среднего и дисперсии окна
-    let m = r.len();
+    // префиксные суммы опорного трека для среднего и дисперсии окна — только по нужному отрезку [lo, hi + n)
+    let base = lo as usize;
+    let m = hi as usize + n - base;
     let mut s1 = vec![[0f64; NB]; m + 1];
     let mut s2 = vec![[0f64; NB]; m + 1];
     for i in 0..m {
-        for b in 0..NB {
-            s1[i + 1][b] = s1[i][b] + r[i][b] as f64;
-            s2[i + 1][b] = s2[i][b] + (r[i][b] as f64) * (r[i][b] as f64);
+        let x = &r[base + i];
+        for b in d0..d1 {
+            s1[i + 1][b] = s1[i][b] + x[b] as f64;
+            s2[i + 1][b] = s2[i][b] + (x[b] as f64) * (x[b] as f64);
         }
     }
     let count = (hi - lo + 1) as usize;
@@ -200,14 +212,15 @@ fn ncc_scores(q: &Frames, r: &Frames, lo: isize, hi: isize) -> Option<(isize, Ve
         let mut dot = 0f32;
         for t in 0..n {
             let (a, c) = (&qz[t], &r[l + t]);
-            for b in 0..NB {
+            for b in d0..d1 {
                 dot += a[b] * c[b];
             }
         }
         let mut var = 0f64;
-        for b in 0..NB {
-            let sum = s1[l + n][b] - s1[l][b];
-            let sq = s2[l + n][b] - s2[l][b];
+        let j = l - base;
+        for b in d0..d1 {
+            let sum = s1[j + n][b] - s1[j][b];
+            let sq = s2[j + n][b] - s2[j][b];
             var += (sq - sum * sum / n as f64).max(0.0);
         }
         let rn = var.sqrt() as f32;
@@ -426,7 +439,7 @@ pub fn diag_match(dir: &std::path::Path) -> String {
                     })
                     .collect();
                 let qq = features(&rs, cr);
-                if let Some((_, s)) = ncc_scores(&qq, &rfull, 0, isize::MAX) {
+                if let Some((_, s)) = ncc_scores(&qq, &rfull, 0, isize::MAX, 0..NB) {
                     let best = s.iter().cloned().fold(f32::MIN, f32::max);
                     line.push_str(&format!(" {sp:.3}:{best:.2}"));
                 }
@@ -440,7 +453,7 @@ pub fn diag_match(dir: &std::path::Path) -> String {
         let variants: [(&str, &dyn Fn(usize) -> bool); 3] = [("все", &|_| true), ("атаки", &|b| b < NF), ("хрома", &|b| b >= NF)];
         for (name, keep) in variants {
             let (qq, rr) = (mask(&q, keep), mask(&rfull, keep));
-            if let Some((lo, s)) = ncc_scores(&qq, &rr, 0, isize::MAX) {
+            if let Some((lo, s)) = ncc_scores(&qq, &rr, 0, isize::MAX, 0..NB) {
                 let mut idx: Vec<usize> = (0..s.len()).collect();
                 idx.sort_by(|a, b| s[*b].total_cmp(&s[*a]));
                 let mut peaks: Vec<usize> = vec![];
@@ -458,6 +471,20 @@ pub fn diag_match(dir: &std::path::Path) -> String {
         }
     }
     out
+}
+
+/// Устройство вывода по умолчанию (id): задержка звукового тракта у каждого устройства своя.
+pub async fn output_device() -> String {
+    tauri::async_runtime::spawn_blocking(|| {
+        let _ = wasapi::initialize_mta();
+        wasapi::DeviceEnumerator::new()
+            .ok()
+            .and_then(|en| en.get_default_device(wasapi::Direction::Render).ok())
+            .and_then(|d| d.get_id().ok())
+            .unwrap_or_default()
+    })
+    .await
+    .unwrap_or_default()
 }
 
 impl Sync {
@@ -524,12 +551,16 @@ impl Sync {
             dump(&format!("cap-{}", c.start_ms as u64), &c.mono, c.rate);
             let q = features(&c.mono, c.rate);
             let (lo_f, hi_f) = ((lo / HOP).floor() as isize, (hi / HOP).ceil() as isize);
-            let (lag, score, second) =
-                best_match(&q, &reference.frames, lo_f, hi_f).ok_or_else(|| ApiError::new("NOMATCH", "не удалось сравнить звук"))?;
+            // несколько мест-кандидатов: при повторах в песне решает сверка нескольких замеров
+            let c6 = matches(&q, &reference.frames, lo_f, hi_f, 6);
+            let (lag, score) = *c6.first().ok_or_else(|| ApiError::new("NOMATCH", "не удалось сравнить звук"))?;
+            let second = c6.get(1).map(|x| x.1).unwrap_or(0.0).max(0.0);
+            let cands: Vec<Value> = c6.iter().map(|(l, s)| json!({ "pos": l * HOP, "score": s })).collect();
             Ok(json!({
                 "pos": lag * HOP,
                 "score": score,
                 "second": second,
+                "cands": cands,
                 "startMs": c.start_ms,
                 "rms": c.rms,
                 "duration": reference.duration,

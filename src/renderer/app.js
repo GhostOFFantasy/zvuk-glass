@@ -820,6 +820,7 @@
       Views._vizTrack && Views._vizTrack(t);
       NP.trackChanged(t);
       Clip.trackChanged();
+      ClipOffer.trackChanged(t);
     });
     Player.on('stream', updateQualityBadge);
     Player.on('state', ({ playing }) => {
@@ -2132,9 +2133,100 @@
       const s = $('#sidebar').getBoundingClientRect();
       console.warn(`SELFTEST ${extra} mid: sidebar x=${Math.round(s.left)} w=${Math.round(s.width)} | main x=${Math.round(m.left)} w=${Math.round(m.width)}`);
       return window.zvuk.screenshotReady(0);
+    } else if (extra === 'clipofferopen') {
+      // уведомление появляется само при открытии «Сейчас играет» и уходит при закрытии
+      Object.assign(App.settings.viz, { bg: 'cover', clipAuto: false });
+      NP.vizOn = false;
+      await silentPlay(2);
+      ClipOffer._force = true;
+      console.warn(`SELFTEST clipofferopen before: card=${Boolean($('.clip-offer'))}`);
+      const t0 = performance.now();
+      openNowPlaying();
+      let k = 0;
+      while (!$('.clip-offer') && k++ < 40) await wait(50);
+      console.warn(`SELFTEST clipofferopen open: card=${Boolean($('.clip-offer'))} after=${Math.round(performance.now() - t0)}ms`);
+      await wait(600);
+      NP.close();
+      await wait(600);
+      console.warn(`SELFTEST clipofferopen closed: card=${Boolean($('.clip-offer'))}`);
+      // снова открыли — карточка снова на месте (для снимка)
+      openNowPlaying();
+      await wait(1200);
+    } else if (extra === 'clipwatch') {
+      // сторож: плеер YouTube «не загрузился» (подменяем адрес) — через ~12 с приложение пересоздаёт его само
+      Object.assign(App.settings.viz, { bg: 'clip', style: 'waves', clipAuto: false });
+      await silentPlay(2);
+      NP.vizOn = true;
+      openNowPlaying();
+      await wait(1200);
+      Player.seek(0.3);
+      await Clip.setLink('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+      await wait(50);
+      const f = $('#nowPlaying .clip-frame');
+      if (f) f.src = 'about:blank';
+      const t0 = performance.now();
+      let k = 0;
+      while (!$('#nowPlaying .clip-box.clip-on') && k++ < 280) await wait(100);
+      console.warn(`SELFTEST clipwatch: on=${Boolean($('#nowPlaying .clip-box.clip-on'))} after=${((performance.now() - t0) / 1000).toFixed(1)}s sameFrame=${$('#nowPlaying .clip-frame') === f}`);
+    } else if (extra === 'clipoffer' || extra === 'clipofferok') {
+      // Уведомление «включить клип и подстройку» (справа сверху); clipofferok — нажать «Включить и подстроить»
+      Object.assign(App.settings.viz, { bg: 'cover', clipAuto: false });
+      NP.vizOn = false;
+      await silentPlay(2);
+      const t = Player.current;
+      const need = await ClipOffer.need(t);
+      console.warn(`SELFTEST clipoffer need: ${JSON.stringify(need)}`);
+      ClipOffer.show(t, { clip: true, sync: true });
+      await wait(900);
+      if (extra === 'clipofferok') {
+        $('.clip-offer [data-co="ok"]').click();
+        await wait(2500);
+        console.warn(`SELFTEST clipoffer ok: card=${Boolean($('.clip-offer'))} bg=${App.settings.viz.bg} auto=${Clip.auto} want=${Clip._wantTrack === String(t.id)} npOpen=${NP.isOpen} vizOn=${NP.vizOn} clipBox=${Boolean($('#nowPlaying .clip-box'))} status=${Clip.status}`);
+        await wait(1500);
+      }
+    } else if (extra.startsWith('clipstart')) {
+      // clipstart@<id ролика>@<мс> — снимок через заданное время после появления клипа (значки YouTube поверх него)
+      // @r — после паузы и продолжения, @s — после перемотки трека
+      const [, vid = 'BnnbP7pCIvQ', ms = '300', action] = extra.split('@');
+      Object.assign(App.settings.viz, { bg: 'clip', style: 'waves', clipAuto: false });
+      await silentPlay(2);
+      NP.vizOn = true;
+      openNowPlaying();
+      await wait(1500);
+      Player.seek(0.3); // превью трека — всего 30 секунд
+      await Clip.setLink('https://www.youtube.com/watch?v=' + vid);
+      const on = () => Boolean($('#nowPlaying .clip-box.clip-on'));
+      let k = 0;
+      while (!on() && k++ < 200) {
+        await wait(100);
+        if (k % 20 === 0) console.warn(`SELFTEST clipstart wait: t=${Player.audio.currentTime.toFixed(1)} paused=${Player.audio.paused} status=${Clip.status} frame=${Boolean($('.clip-frame'))}`);
+      }
+      console.warn(`SELFTEST clipstart: on=${on()} after=${k * 100}ms`);
+      if (!on() && $('.clip-frame')) {
+        // клип так и не пошёл — показываем, что в плеере YouTube
+        $('.clip-frame').style.opacity = '1';
+        return window.zvuk.screenshotReady(300);
+      }
+      if (action) {
+        await wait(5000);
+        if (action === 'r') {
+          Player.toggle();
+          await wait(2500);
+          Player.toggle();
+        } else Player.seek(Math.max(0.5, Player.audio.currentTime - 8));
+        k = 0;
+        await wait(1000);
+        while (!on() && k++ < 100) await wait(100);
+        console.warn(`SELFTEST clipstart ${action}: on=${on()} after=${k * 100}ms t=${Player.audio.currentTime.toFixed(1)}`);
+      }
+      await wait(+ms);
+      return window.zvuk.screenshotReady(0);
     } else if (extra.startsWith('clipsync')) {
-      // clipsync@<id ролика> — проверить на другом ролике
-      const vidArg = extra.includes('@') ? extra.split('@')[1] : 'dQw4w9WgXcQ';
+      // clipsync@<id ролика>[@<план>[@<id трека>]] — проверить на другом ролике.
+      // План: «-» — слушать клип только там, где он идёт (ручной сдвиг шагами по 20 с, как раньше);
+      // «auto» — как в приложении; «a,b» — перематывать клип в эти секунды и сверять замеры.
+      const [, vidArg = 'dQw4w9WgXcQ', planArg = '-', trackArg] = extra.split('@');
+      Clip._testPlan = planArg === 'auto' ? null : planArg === '-' ? [null] : planArg.split(',').map(Number);
       extra = extra.split('@')[0];
       // Автосинхронизация: тихое воспроизведение (звук нужен — его слушает захват), клип по ссылке.
       // Для гостя трек — 30-секундное превью из середины песни, поэтому сначала ищем место клипа,
@@ -2142,7 +2234,9 @@
       const s = App.settings.viz;
       Object.assign(s, { bg: 'clip', style: 'waves', clipAuto: false, clipQ: '480' });
       let t;
-      if (extra === 'clipsync') {
+      if (trackArg) {
+        t = (await api('getTracks', [trackArg]))[0];
+      } else if (vidArg === 'dQw4w9WgXcQ') {
         const r = await api('search', 'Rick Astley Never Gonna Give You Up');
         const ok = (x) => /never gonna give you up/i.test(x.title) && /astley/i.test(artistsText(x.artists)) && !/instrumental|karaoke|remix|mix\)|live|acoustic|pianoforte|edit/i.test(x.title);
         t = r.tracks.find(ok) || r.tracks[0];
@@ -2161,7 +2255,7 @@
       await wait(4000);
       Clip._calKey = Clip.trackId + '|' + Clip.videoId; // подстройку запускает сам тест, по шагам
       s.clipAuto = true;
-      const steps = extra === 'clipsync' ? [0, 20, 40, 60, 80, 100, 120, 140, 160, 180] : [0];
+      const steps = planArg !== '-' ? [0] : vidArg === 'dQw4w9WgXcQ' ? [0, 20, 40, 60, 80, 100, 120, 140, 160, 180] : Array.from({ length: 14 }, (_, i) => i * 20);
       for (const off of steps) {
         Player.seek(1);
         await Clip._update({ offset: off, auto: null });
@@ -2169,7 +2263,7 @@
         await wait(2600);
         console.warn(`SELFTEST clipsync before off=${off}: paused=${Player.audio.paused} t=${Player.audio.currentTime.toFixed(2)} gain=${AudioFX.vol && AudioFX.vol.gain.value.toFixed(3)} ducked=${AudioFX.ducked} level=${Viz.level.toFixed(3)}`);
         await Clip.calibrate(true);
-        console.warn(`SELFTEST clipsync try off=${off}: ${Clip.sync.state} ${Clip.sync.message}`);
+        console.warn(`SELFTEST clipsync try off=${off}: ${Clip.sync.state} ${Clip.sync.message} t=${Player.audio.currentTime.toFixed(2)}`);
         if (Clip.sync.state === 'done') break;
       }
       if (Clip.sync.state === 'done') {

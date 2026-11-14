@@ -11,7 +11,7 @@ use serde_json::{json, Map, Value};
 use crate::crypt;
 
 // seenVersion — версия, о новинках которой пользователь уже знает (плашка «Что нового» после обновления)
-pub const PUBLIC_KEYS: [&str; 12] = ["quality", "volume", "shuffle", "repeat", "liquidGlass", "wave", "custom", "eq", "viz", "profileLocal", "lyrics", "seenVersion"];
+pub const PUBLIC_KEYS: [&str; 13] = ["quality", "volume", "shuffle", "repeat", "liquidGlass", "wave", "custom", "eq", "viz", "profileLocal", "lyrics", "seenVersion", "clipLat"];
 
 fn defaults() -> Map<String, Value> {
     let v = json!({

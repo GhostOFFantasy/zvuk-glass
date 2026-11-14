@@ -82,7 +82,7 @@
       state: () => invoke('yt_state'),
       setKey: (k) => wrapped('yt_set_key', { key: String(k || '') }),
       clearKey: () => invoke('yt_clear_key'),
-      find: (track, force) => wrapped('yt_find', { track, force: Boolean(force) }),
+      find: (track, force, cached) => wrapped('yt_find', { track, force: Boolean(force), cached: Boolean(cached) }),
       update: (trackId, patch) => wrapped('yt_update', { trackId, patch: patch || {} }),
       clearCache: () => invoke('yt_clear_cache'),
       parse: (text) => invoke('yt_parse', { text: String(text || '') }),
@@ -91,6 +91,7 @@
     sync: {
       prepare: (trackId) => invoke('sync_prepare', { trackId: String(trackId) }),
       measure: (trackId, seconds, lo, hi) => invoke('sync_measure', { trackId: String(trackId), seconds, lo, hi }),
+      device: () => invoke('sync_device'),
     },
     update: {
       state: () => invoke('update_state'),

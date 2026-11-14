@@ -51,13 +51,13 @@
       else if (s.state === 'fail') line = `<div class="vz-sync err">${esc(s.message)}</div>`;
       else if (s.state === 'wait') line = `<div class="vz-sync">${esc(s.message)}</div>`;
       else if (a) line = `<div class="vz-sync ok">${icon('check')}Подстроено по звуку · точность около 0,03 с</div>`;
-      else line = '<div class="vz-sync">Подстройка начнётся, когда пойдёт клип: около 10 секунд, на пару секунд звук пойдёт из клипа. Другие звуки на компьютере лучше приглушить.</div>';
+      else line = '<div class="vz-sync">Для этого трека подстройки ещё нет — нажмите ↻. Это 5–10 секунд: звук ненадолго пойдёт из клипа (иногда из середины песни), потом трек начнётся сначала. Другие звуки на компьютере лучше приглушить.</div>';
     }
     const busy = s.state === 'run';
     return `<div class="vz-auto">
       <div class="vz-auto-row"><button class="switch${on ? ' on' : ''}" data-vclip="auto"${busy ? ' disabled' : ''}></button>
         <span>Автосинхронизация<small>губы в такт: сдвиг по звуку клипа</small></span>
-        ${on && !busy && (a || s.state === 'fail') ? `<button class="btn small" data-vclip="recal" title="Измерить заново">${icon('refresh')}</button>` : ''}</div>
+        ${on && !busy ? `<button class="btn small" data-vclip="recal" title="${a ? 'Измерить заново' : 'Подстроить'}">${icon('refresh')}</button>` : ''}</div>
       ${line}
     </div>`;
   }
@@ -71,20 +71,21 @@
     if (st === 'loading') line = '<span>Ищем официальный клип…</span>';
     else if (st === 'ok' && info) line = `<b>${esc(info.title)}</b><span>${esc(info.channel)}</span>`;
     else if (st === 'nokey') line = '<span>Для автопоиска нужен ключ YouTube. Можно и без него — вставьте ссылку на клип.</span>';
-    else if (st === 'none') line = '<span>Официальный клип не найден. Попробуйте «Другой» или вставьте ссылку.</span>';
+    else if (st === 'none') line = '<span>Официальный клип не найден. Попробуйте искать снова или вставьте ссылку.</span>';
     else if (st === 'error') line = `<span class="err">${esc(Clip.message)}</span>`;
     else line = '<span>Клип появится, когда заиграет трек</span>';
     const hasMore = Clip.entry && Clip.entry.cands && Clip.entry.cands.length > 1;
     return `<div class="vz-clip">${line}
       <div class="vz-clip-btns">
         ${hasMore ? `<button class="btn small" data-vclip="next">${icon('refresh')}Другой</button>` : ''}
+        ${st === 'none' || st === 'error' ? `<button class="btn small" data-vclip="research">${icon('search')}Искать снова</button>` : ''}
         <button class="btn small" data-vclip="link">${icon('link')}Ссылка</button>
         ${st === 'ok' && info ? `<button class="btn small" data-vclip="open" title="Открыть на YouTube">${icon('external')}</button>` : ''}
         ${st === 'nokey' ? `<button class="btn small primary" data-vclip="settings">${icon('settings')}Ключ</button>` : ''}
       </div>
       ${st === 'ok' ? autoBlock() : ''}
       ${st === 'ok' ? `<div class="vz-offset${Clip.auto ? ' locked' : ''}" title="${Clip.auto ? 'Недоступно, пока включена автосинхронизация' : 'Если клип опережает или отстаёт от музыки'}"><span>Сдвиг</span>
-        <button class="btn small" data-vclip="minus"${Clip.auto ? ' disabled' : ''}>−1 с</button><b>${off > 0 ? '+' : ''}${off.toFixed(Clip.auto && Clip.autoInfo ? 2 : 1)} с</b><button class="btn small" data-vclip="plus"${Clip.auto ? ' disabled' : ''}>+1 с</button></div>` : ''}
+        <button class="btn small" data-vclip="minus"${Clip.auto ? ' disabled' : ''}>−0,5 с</button><b>${off > 0 ? '+' : ''}${off.toFixed(Clip.auto && Clip.autoInfo ? 2 : 1)} с</b><button class="btn small" data-vclip="plus"${Clip.auto ? ' disabled' : ''}>+0,5 с</button></div>` : ''}
       <div class="vz-q">
         <div class="vz-q-head"><span>Качество клипа</span>${Clip.actualQuality ? `<small title="Что YouTube показывает сейчас">сейчас ${esc(Clip.actualQuality)}</small>` : ''}</div>
         <div class="vz-q-opts">${Clip.QLIST.map(([id, label]) => `<button class="vz-qb${Clip.quality === id ? ' on' : ''}" data-vclipq="${id}">${label}</button>`).join('')}</div>
@@ -211,11 +212,16 @@
           const a = cb.dataset.vclip;
           if (a === 'auto') {
             Clip.setAuto(!Clip.auto);
-            if (Clip.auto) toast('Автосинхронизация: на пару секунд звук пойдёт из клипа', { iconName: 'sparkle', ms: 2600 });
+            if (Clip.auto && Player.current) {
+              // включили — сразу подстраиваем текущий трек (если для него ещё нет замера)
+              Clip.requestSync(Player.current.id);
+              if (!Clip.autoInfo) toast('Автосинхронизация: звук ненадолго пойдёт из клипа, потом трек начнётся сначала', { iconName: 'sparkle', ms: 3200 });
+            }
           } else if (a === 'recal') Clip.calibrate(true);
           else if (a === 'next') await Clip.next();
-          else if (a === 'minus') await Clip.shift(-1);
-          else if (a === 'plus') await Clip.shift(1);
+          else if (a === 'research') await Clip.resolve(true);
+          else if (a === 'minus') await Clip.shift(-0.5);
+          else if (a === 'plus') await Clip.shift(0.5);
           else if (a === 'open' && Clip.info) window.zvuk.openZvuk(`https://www.youtube.com/watch?v=${Clip.info.id}`);
           else if (a === 'settings') App.navigate('settings');
           else if (a === 'link') {

@@ -11,6 +11,10 @@ fn unavailable() -> ApiError {
     ApiError::new("UNSUPPORTED", "Автосинхронизация по звуку доступна только в версии для Windows")
 }
 
+pub async fn output_device() -> String {
+    String::new()
+}
+
 impl Sync {
     pub fn new() -> Self {
         Sync
