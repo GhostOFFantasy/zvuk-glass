@@ -15,21 +15,33 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "publisher": "GhostOFFantasy",
     "shortDescription": "Zvuk Glass",
     "longDescription": "Неофициальный десктопный плеер для Zvuk (zvuk.com)",
     "copyright": "GhostOFFantasy",
     "category": "Music",
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
     "createUpdaterArtifacts": true,
     "windows": {
-      "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
       "nsis": {
         "installMode": "currentUser",
         "installerHooks": "./installer-hooks.nsh",
         "installerIcon": "icons/icon.ico",
-        "languages": ["Russian"],
+        "languages": [
+          "Russian"
+        ],
         "displayLanguageSelector": false
       }
     }
@@ -37,8 +49,12 @@
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ3NDA2RjY3MDZERTRFRDAKUldUUVR0NEdaMjlBMThOS25XSVJDbFh1QjVOdXBycFlqbStiTkgrUCtkMWlmRTBzNmZFRS9OZXEK",
-      "endpoints": ["https://github.com/GhostOFFantasy/zvuk-glass/releases/latest/download/latest.json"],
-      "windows": { "installMode": "passive" }
+      "endpoints": [
+        "https://github.com/GhostOFFantasy/zvuk-glass/releases/latest/download/update.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

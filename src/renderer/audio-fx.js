@@ -20,7 +20,12 @@
     treble: { name: 'Больше высоких', bands: [0, 0, 0, 0, 0, 1, 2.5, 4.5, 6, 7] },
   };
 
-  const DEFAULT_EQ = { enabled: false, preset: 'flat', bands: PRESETS.flat.bands.slice(), preamp: 0, compressor: false };
+  // preset: id готового пресета, 'custom' («Свой») или 'u:…' (сохранённый пользователем).
+  // custom — последние ручные настройки, user — свои пресеты с названиями. Ничего из этого не теряется
+  // при переключении на готовые пресеты.
+  const DEFAULT_EQ = { enabled: false, preset: 'flat', bands: PRESETS.flat.bands.slice(), preamp: 0, compressor: false, custom: null, user: [] };
+  const isUser = (id) => typeof id === 'string' && id.startsWith('u:');
+  const MAX_USER = 30;
   const dbToGain = (db) => Math.pow(10, db / 20);
 
   const AudioFX = {
@@ -35,7 +40,13 @@
     onChange: null,
 
     init(audio, eqSettings) {
-      if (eqSettings) this.eq = { ...DEFAULT_EQ, ...eqSettings, bands: (eqSettings.bands || DEFAULT_EQ.bands).slice(0, 10) };
+      if (eqSettings) {
+        this.eq = { ...DEFAULT_EQ, ...eqSettings, bands: (eqSettings.bands || DEFAULT_EQ.bands).slice(0, 10) };
+        this.eq.user = Array.isArray(eqSettings.user) ? eqSettings.user.filter((p) => p && isUser(p.id) && Array.isArray(p.bands)).slice(0, MAX_USER) : [];
+        // раньше «Свой» не запоминался отдельно — переносим текущие ручные настройки
+        if (!this.eq.custom && this.eq.preset === 'custom') this.eq.custom = { bands: this.eq.bands.slice(), preamp: this.eq.preamp || 0 };
+        if (isUser(this.eq.preset) && !this.userPreset(this.eq.preset)) this.eq.preset = 'custom';
+      }
       try {
         this.ctx = new AudioContext({ latencyHint: 'playback' });
         const c = this.ctx;
@@ -106,33 +117,99 @@
       this.eq.enabled = Boolean(v);
       this._changed();
     },
+    userPreset(id) {
+      return (this.eq.user || []).find((p) => p.id === id) || null;
+    },
+    /** Название пресета для подписей: готовый, «Свой» или своё название. */
+    presetName(id = this.eq.preset) {
+      if (PRESETS[id]) return PRESETS[id].name;
+      if (isUser(id)) return this.userPreset(id)?.name || 'Свой';
+      return 'Свой';
+    },
+    /** Ручная правка: попадает в выбранный свой пресет, а если выбран готовый — в «Свой». */
+    _remember() {
+      const u = isUser(this.eq.preset) ? this.userPreset(this.eq.preset) : null;
+      if (u) {
+        u.bands = this.eq.bands.slice();
+        u.preamp = this.eq.preamp || 0;
+      } else {
+        this.eq.preset = 'custom';
+        this.eq.custom = { bands: this.eq.bands.slice(), preamp: this.eq.preamp || 0 };
+      }
+    },
     setBand(i, db) {
       this.eq.bands[i] = Math.round(Math.max(-12, Math.min(12, db)) * 2) / 2;
-      this.eq.preset = 'custom';
+      this._remember();
       if (!this.eq.enabled) this.eq.enabled = true;
       this._changed();
     },
     setPreamp(db) {
       this.eq.preamp = Math.round(Math.max(-12, Math.min(6, db)) * 2) / 2;
+      // общий уровень у готовых пресетов подбирается сам; у своих — запоминается вместе с полосами
+      if (this.eq.preset === 'custom' || isUser(this.eq.preset)) this._remember();
       this._changed();
     },
     setPreset(id) {
-      const p = PRESETS[id];
-      if (!p) return;
+      let bands;
+      let preamp;
+      if (PRESETS[id]) {
+        bands = PRESETS[id].bands;
+        // Чтобы не было перегруза, при подъёме частот немного снижаем общий уровень
+        preamp = -Math.round(Math.max(0, ...bands) * 0.6 * 2) / 2;
+      } else if (id === 'custom') {
+        const c = this.eq.custom || { bands: PRESETS.flat.bands, preamp: 0 };
+        bands = c.bands;
+        preamp = c.preamp || 0;
+      } else {
+        const u = this.userPreset(id);
+        if (!u) return;
+        bands = u.bands;
+        preamp = u.preamp || 0;
+      }
       this.eq.preset = id;
-      this.eq.bands = p.bands.slice();
-      // Чтобы не было перегруза, при подъёме частот немного снижаем общий уровень
-      const peak = Math.max(0, ...p.bands);
-      this.eq.preamp = -Math.round(peak * 0.6 * 2) / 2;
+      this.eq.bands = bands.slice(0, 10);
+      this.eq.preamp = preamp;
       this.eq.enabled = id !== 'flat' || this.eq.enabled;
+      this._changed();
+    },
+    /** Сохранить текущие настройки как свой пресет с названием; он сразу становится выбранным. */
+    savePreset(name) {
+      const n = String(name || '').trim().slice(0, 30);
+      if (!n) return null;
+      const user = this.eq.user || [];
+      if (user.length >= MAX_USER) return null;
+      const p = { id: 'u:' + Date.now().toString(36), name: n, bands: this.eq.bands.slice(), preamp: this.eq.preamp || 0 };
+      this.eq.user = [...user, p];
+      this.eq.preset = p.id;
+      if (!this.eq.enabled) this.eq.enabled = true;
+      this._changed();
+      return p.id;
+    },
+    renamePreset(id, name) {
+      const u = this.userPreset(id);
+      const n = String(name || '').trim().slice(0, 30);
+      if (!u || !n) return;
+      u.name = n;
+      this._changed();
+    },
+    /** Удалить свой пресет; если он был выбран, его настройки остаются в «Своём». */
+    deletePreset(id) {
+      const u = this.userPreset(id);
+      if (!u) return;
+      this.eq.user = this.eq.user.filter((p) => p.id !== id);
+      if (this.eq.preset === id) {
+        this.eq.preset = 'custom';
+        this.eq.custom = { bands: u.bands.slice(), preamp: u.preamp || 0 };
+      }
       this._changed();
     },
     setCompressor(v) {
       this.eq.compressor = Boolean(v);
       this._changed();
     },
+    /** «Сбросить» — все полосы на 0 (пресет «Ровный»); «Свой» и свои пресеты не трогаем. */
     reset() {
-      this.eq = { ...DEFAULT_EQ, bands: DEFAULT_EQ.bands.slice(), enabled: this.eq.enabled };
+      this.eq = { ...this.eq, preset: 'flat', bands: DEFAULT_EQ.bands.slice(), preamp: 0 };
       this._changed();
     },
 

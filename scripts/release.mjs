@@ -3,9 +3,10 @@
  * Выпуск новой версии: поднимает номер, собирает установщик (Tauri) и публикует его в GitHub Releases.
  * Установленные копии приложения (на любом вашем ПК) увидят релиз и обновятся сами.
  *
- *   npm run release              → 2.0.0 → 2.0.1
- *   npm run release -- minor     → 2.0.0 → 2.1.0
- *   npm run release -- major     → 2.0.0 → 3.0.0
+ * Номер растёт на число изменений в выпуске: каждая цифра 0–9, с переносом в следующий разряд.
+ *   npm run release              → +1: 2.2.1 → 2.2.2
+ *   npm run release -- 3         → +3: 2.2.1 → 2.2.4
+ *   npm run release -- 9         → +9: 2.2.1 → 2.3.0
  *   npm run release -- 2.4.2     → ровно эта версия
  *   npm run release -- current   → выпустить текущую версию без изменения номера
  *   добавьте --notes "что нового" — текст появится в описании релиза и в приложении
@@ -31,11 +32,7 @@ const REPO = 'zvuk-glass';
 const args = process.argv.slice(2);
 const notesAt = args.indexOf('--notes');
 const notesArg = notesAt >= 0 ? args.splice(notesAt, 2)[1] || '' : '';
-// --no-android — выпустить только Windows-версию
-const noAndroidAt = args.indexOf('--no-android');
-const withAndroid = noAndroidAt < 0;
-if (!withAndroid) args.splice(noAndroidAt, 1);
-const bump = args[0] || 'patch';
+const bump = args[0] || '1';
 
 const fail = (msg) => {
   console.error('\n✖ ' + msg);
@@ -77,13 +74,26 @@ const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
 const cur = pkg.version;
 let next = cur;
 if (bump !== 'current') {
-  const [ma, mi, pa] = cur.split('.').map(Number);
-  if (bump === 'patch') next = `${ma}.${mi}.${pa + 1}`;
-  else if (bump === 'minor') next = `${ma}.${mi + 1}.0`;
-  else if (bump === 'major') next = `${ma + 1}.0.0`;
-  else if (/^\d+\.\d+\.\d+$/.test(bump)) next = bump;
-  else fail(`Непонятная версия «${bump}». Используйте patch, minor, major, current или x.y.z`);
+  if (/^\+?\d+$/.test(bump)) {
+    // версия как трёхзначное число: 2.2.1 → 221, +9 → 230 → 2.3.0
+    const [ma, mi, pa] = cur.split('.').map(Number);
+    const n = ma * 100 + Math.min(mi, 9) * 10 + Math.min(pa, 9) + Number(bump);
+    next = `${Math.floor(n / 100)}.${Math.floor(n / 10) % 10}.${n % 10}`;
+  } else if (/^\d+\.\d+\.\d+$/.test(bump)) next = bump;
+  else fail(`Непонятная версия «${bump}». Укажите число изменений, current или x.y.z`);
 }
+// Описание выпуска — из src/renderer/changelog.js (тот же текст приложение покажет плашкой «Что нового»)
+const changelog = (() => {
+  const win = {};
+  try {
+    new Function('window', readFileSync(join(root, 'src', 'renderer', 'changelog.js'), 'utf8'))(win);
+  } catch {}
+  return win.ZG_CHANGELOG || [];
+})();
+const entry = changelog.find((e) => e.version === next);
+if (!notesArg && !entry) fail(`В src/renderer/changelog.js нет описания версии ${next}. Добавьте его — плашка «Что нового» и описание релиза берут текст оттуда.`);
+const changelogNotes = entry ? entry.items.map((i) => `• ${i.title}. ${i.text}`).join('\n') : '';
+
 const tag = 'v' + next;
 // тег уже есть: если он на текущем коммите — это повтор после неудачной публикации, продолжаем
 const tagExists = Boolean(run('git', ['tag', '--list', tag]));
@@ -114,7 +124,7 @@ try {
   existing = JSON.parse(run(GH, ['release', 'view', tag, ...R, '--json', 'isDraft'], ghEnv));
 } catch {}
 if (existing && !existing.isDraft) fail(`Релиз ${tag} уже опубликован на GitHub. Выберите другой номер версии.`);
-const notes = notesArg || `Zvuk Glass ${next}`;
+const notes = notesArg || changelogNotes || `Zvuk Glass ${next}`;
 if (!existing) run(GH, ['release', 'create', tag, ...R, '--draft', '--verify-tag', '--title', `Zvuk Glass ${next}`, '--notes', notes], ghEnv);
 
 step('Собираем приложение и установщик (несколько минут)');
@@ -140,12 +150,16 @@ const signature = readFileSync(built + '.sig', 'utf8').trim();
 const url = `https://github.com/${OWNER}/${REPO}/releases/download/${tag}/${setupName}`;
 const pubDate = new Date().toISOString();
 
-// для новых версий (Tauri): описание обновления с подписью
+// Описание обновления с подписью (Tauri). Версии с 2.2.2 читают update.json.
 const platform = { signature, url };
-writeFileSync(
-  join(dist, 'latest.json'),
-  JSON.stringify({ version: next, notes, pub_date: pubDate, platforms: { 'windows-x86_64': platform, 'windows-x86_64-nsis': platform } }, null, 2)
-);
+const platforms = { 'windows-x86_64': platform, 'windows-x86_64-nsis': platform };
+writeFileSync(join(dist, 'update.json'), JSON.stringify({ version: next, notes, pub_date: pubDate, platforms }, null, 2));
+// Мостик для копий до 2.3.0 включительно (они читают latest.json): после перехода на нумерацию 2.2.x
+// их номер выше нового, поэтому здесь объявляем 2.3.1 — они ставят текущую версию и дальше читают update.json.
+const num = (v) => v.split('.').map(Number).reduce((s, x) => s * 1000 + x, 0);
+const bridgeVersion = num(next) > num('2.3.0') ? next : '2.3.1';
+const bridgeNotes = bridgeVersion === next ? notes : `Переход на новую нумерацию версий: после установки будет версия ${next}.\n\n${notes}`;
+writeFileSync(join(dist, 'latest.json'), JSON.stringify({ version: bridgeVersion, notes: bridgeNotes, pub_date: pubDate, platforms }, null, 2));
 // для копий 1.x на Electron: они читают latest.yml и сами переходят на новую версию
 const sha512 = createHash('sha512').update(readFileSync(setup)).digest('base64');
 const size = statSync(setup).size;
@@ -154,24 +168,12 @@ writeFileSync(
   `version: ${next}\nfiles:\n  - url: ${setupName}\n    sha512: ${sha512}\n    size: ${size}\npath: ${setupName}\nsha512: ${sha512}\nreleaseDate: '${pubDate}'\n`
 );
 
-// ---------- Android ----------
-// Постоянное имя файла: установленные Android-версии качают …/releases/latest/download/Zvuk-Glass-Android.apk
-const apkName = 'Zvuk-Glass-Android.apk';
-if (withAndroid) {
-  step('Собираем Android-версию (APK, несколько минут)');
-  const a = spawnSync(process.execPath, [join(root, 'scripts', 'android.mjs'), '--release'], { cwd: root, stdio: 'inherit', env: withPath(process.env) });
-  const builtApk = join(dist, 'android', `Zvuk-Glass-${next}.apk`);
-  if (a.status !== 0 || !existsSync(builtApk))
-    fail('Сборка Android-версии не удалась (см. вывод выше). Черновик релиза остался — после исправления: npm run release -- current (или --no-android)');
-  copyFileSync(builtApk, join(dist, apkName));
-}
-
 step('Загружаем файлы в релиз');
-const files = [setup, join(dist, 'latest.json'), join(dist, 'latest.yml'), ...(withAndroid ? [join(dist, apkName)] : [])];
+const files = [setup, join(dist, 'update.json'), join(dist, 'latest.json'), join(dist, 'latest.yml')];
 if (spawnSync(GH, ['release', 'upload', tag, ...R, '--clobber', ...files], { cwd: root, stdio: 'inherit', ...ghEnv }).status !== 0)
   fail('Не удалось загрузить файлы. Черновик остался — запустите: npm run release -- current');
 const assets = JSON.parse(run(GH, ['release', 'view', tag, ...R, '--json', 'assets'], ghEnv)).assets.map((a) => a.name);
-for (const need of [setupName, 'latest.json', 'latest.yml', ...(withAndroid ? [apkName] : [])]) if (!assets.includes(need)) fail(`В черновике ${tag} нет файла ${need}`);
+for (const need of [setupName, 'update.json', 'latest.json', 'latest.yml']) if (!assets.includes(need)) fail(`В черновике ${tag} нет файла ${need}`);
 
 step('Публикуем релиз');
 run(GH, ['release', 'edit', tag, ...R, '--draft=false', '--latest', '--notes', notes], ghEnv);

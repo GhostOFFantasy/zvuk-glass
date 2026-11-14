@@ -190,7 +190,77 @@
     loadLibrary();
     restoreQueue();
     if (SCREENSHOT) screenshotWhenReady();
+    else setTimeout(() => whatsNew(false), 1400);
   }
+
+  // ======================================================================
+  // «Что нового»: плашка после обновления (тексты — changelog.js)
+  // ======================================================================
+  const verNum = (v) => String(v || '0').split('.').map(Number).reduce((s, n) => s * 1000 + (n || 0), 0);
+  async function whatsNew(force, curOverride) {
+    const list = window.ZG_CHANGELOG || [];
+    const st = curOverride ? null : await window.zvuk.update.state().catch(() => null);
+    const cur = curOverride || (st && st.current);
+    if (!cur || !list.length) return;
+    const seen = App.settings.seenVersion;
+    let entries;
+    if (force) entries = list.filter((e) => verNum(e.version) <= verNum(cur)).slice(0, 1);
+    else {
+      if (seen === cur) return;
+      App.settings.seenVersion = cur;
+      window.zvuk.settings.set({ seenVersion: cur });
+      // только что установили (настроек ещё не было) — рассказывать «что нового» не о чем
+      if (!seen && App.settings.freshInstall) return;
+      // все версии, вышедшие после той, что стояла раньше; если раньше была «бо́льшая» (смена нумерации) — текущая
+      entries = list.filter((e) => verNum(e.version) <= verNum(cur) && (!seen || verNum(e.version) > verNum(seen)));
+      if (!entries.length) entries = list.filter((e) => e.version === cur);
+    }
+    if (!entries.length) return;
+    $('.wn-back')?.remove();
+    const back = document.createElement('div');
+    back.className = 'wn-back';
+    const many = entries.length > 1;
+    back.innerHTML = `<div class="wn glass-menu" role="dialog" aria-label="Что нового">
+        <div class="wn-head">
+          <div class="wn-mark">${icon('sparkle')}</div>
+          <div class="wn-tt"><div class="wn-kicker">${force ? 'Что нового' : 'Приложение обновлено'}</div><h3>Zvuk Glass ${esc(cur)}</h3></div>
+          <button class="icon-btn" data-wn="close" title="Закрыть">${icon('close')}</button>
+        </div>
+        <div class="wn-list">${entries
+          .map(
+            (e) =>
+              `${many ? `<div class="wn-ver">Версия ${esc(e.version)}</div>` : ''}${e.items
+                .map((it) => `<div class="wn-item"><span class="wn-ic">${icon(it.icon || 'check')}</span><div><b>${esc(it.title)}</b><p>${esc(it.text)}</p></div></div>`)
+                .join('')}`,
+          )
+          .join('')}</div>
+        <div class="wn-foot">
+          <button class="btn small" data-wn="github">${icon('external')}Все изменения на GitHub</button>
+          <button class="btn primary" data-wn="close">Понятно</button>
+        </div>
+      </div>`;
+    const close = () => {
+      back.classList.add('out');
+      setTimeout(() => back.remove(), 260);
+      document.removeEventListener('keydown', onKey, true);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        close();
+      }
+    };
+    back.addEventListener('mousedown', (e) => e.target === back && close());
+    back.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-wn]');
+      if (!b) return;
+      if (b.dataset.wn === 'github') window.zvuk.openZvuk(`https://github.com/GhostOFFantasy/zvuk-glass/releases/tag/v${cur}`);
+      close();
+    });
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(back);
+  }
+  App.whatsNew = (force = true, version) => whatsNew(force, version);
 
   /** Имя и аватар: свои (локальные) имеют приоритет над данными Zvuk. */
   App.displayName = () => App.settings.profileLocal?.name || App.profile?.name || (App.demo ? 'Гость' : 'Профиль');
@@ -469,9 +539,6 @@
   function updateNav() {
     const v = App.route?.view;
     $$('.sidebar .nav-item').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
-    // телефон: страницы коллекции и настройки — вкладка «Моё»
-    const tab = ['liked', 'albums', 'artists', 'playlists', 'history', 'playlist', 'settings', 'equalizer', 'visualizer'].includes(v) ? 'library' : v;
-    $$('.m-nav .m-tab').forEach((b) => b.classList.toggle('active', b.dataset.view === tab));
     moveIndicator();
     // список плейлистов не перерисовываем — только отмечаем открытый
     const pid = v === 'playlist' ? String(App.route.params.id) : null;
@@ -1884,66 +1951,38 @@
         await wait(1500);
         report('clip');
       }
-    } else if (extra === 'mgest') {
-      // Жесты пальцем (в узком окне с мобильным интерфейсом): свайпы, долгое нажатие, «Назад»
-      const T = window.zvuk.debug.touch;
-      const swipe = async (x0, y0, x1, y1, steps = 8, ms = 18) => {
-        await T(x0, y0, 'touchStart');
-        for (let k = 1; k <= steps; k++) {
-          await T(x0 + ((x1 - x0) * k) / steps, y0 + ((y1 - y0) * k) / steps, 'touchMove');
-          await wait(ms);
-        }
-        await T(x1, y1, 'touchEnd');
-        await wait(700);
-      };
-      const l = firstList();
-      if (l) Player.playList(l.tracks, 1, l.source);
-      AudioFX.setVolume(0);
-      Player._applyVolume = () => AudioFX.setVolume(0);
-      await wait(2500);
-      // долгое нажатие на строку трека
-      const row = $$('.tr')[3];
-      const rr = row.getBoundingClientRect();
-      await T(rr.left + rr.width / 2, rr.top + rr.height / 2, 'touchStart');
-      await wait(650);
-      await T(rr.left + rr.width / 2, rr.top + rr.height / 2, 'touchEnd');
-      await wait(400);
-      const menu = $('#menuLayer').children.length;
-      const backMenu = window.ZG_back();
-      console.warn(`SELFTEST mgest longpress: menu=${menu} backClosed=${backMenu && !$('#menuLayer').children.length}`);
-      // мини-плеер: вверх — открыть плеер
-      const pb = $('#player').getBoundingClientRect();
-      await swipe(pb.left + pb.width * 0.4, pb.top + pb.height / 2, pb.left + pb.width * 0.4, pb.top - 120);
-      await wait(800);
-      console.warn(`SELFTEST mgest miniUp: npOpen=${NP.isOpen}`);
-      // обложка: влево — следующий трек
-      const i0 = Player.index;
-      const cov = $('.cf-item.cur').getBoundingClientRect();
-      await swipe(cov.left + cov.width * 0.8, cov.top + cov.height / 2, cov.left + cov.width * 0.1, cov.top + cov.height / 2);
-      await wait(600);
-      const i1 = Player.index;
-      await swipe(cov.left + cov.width * 0.2, cov.top + cov.height / 2, cov.left + cov.width * 0.95, cov.top + cov.height / 2);
-      await wait(600);
-      console.warn(`SELFTEST mgest cover: next ${i0}->${i1} prev ->${Player.index}`);
-      // вниз — свернуть плеер
-      await swipe(cov.left + cov.width / 2, cov.top + 20, cov.left + cov.width / 2, cov.top + 320, 10, 16);
+    } else if (extra === 'eqpresets') {
+      // Свои пресеты эквалайзера: «Свой» не пропадает при переключении, свои с названиями
+      const E = AudioFX;
+      const show = () => `${E.eq.preset}:${E.eq.bands.slice(0, 3).join('/')}`;
+      E.setPreset('rock');
+      E.setBand(0, 9);
+      E.setBand(1, -6);
+      const afterEdit = show();
+      E.setPreset('pop');
+      const onPop = show();
+      E.setPreset('custom');
+      const backToCustom = show();
+      const id = E.savePreset('Мой бас');
+      E.setBand(2, 4);
+      E.setPreset('rock');
+      E.setPreset(id);
+      const backToUser = show();
+      const id2 = E.savePreset('Ночной мой');
+      E.setBand(0, -3);
+      E.renamePreset(id2, 'Тихий');
+      E.deletePreset(id2);
+      console.warn(`SELFTEST eqpresets: edit=${afterEdit} pop=${onPop} custom=${backToCustom} user=${backToUser} afterDelete=${show()} users=${E.eq.user.map((p) => p.name).join(',')} name=${E.presetName(id)}`);
+      E.setPreset(id);
+      App.rerender();
       await wait(900);
-      console.warn(`SELFTEST mgest npDown: npOpen=${NP.isOpen}`);
-      // мини-плеер: влево — следующий
-      const j0 = Player.index;
-      await swipe(pb.left + pb.width * 0.7, pb.top + pb.height / 2, pb.left + pb.width * 0.15, pb.top + pb.height / 2);
-      await wait(500);
-      console.warn(`SELFTEST mgest miniLeft: ${j0}->${Player.index} npOpen=${NP.isOpen}`);
-      // очередь: открыть, потянуть шапку вниз — закрыть; «Назад» на странице — к главной
-      App.openPanel('queue');
-      await wait(600);
-      const tabs = $('.sp-tabs').getBoundingClientRect();
-      await swipe(tabs.left + tabs.width * 0.4, tabs.top + 10, tabs.left + tabs.width * 0.4, tabs.top + 300);
-      await wait(600);
-      const backNav = window.ZG_back();
-      await wait(800);
-      console.warn(`SELFTEST mgest sheet: panel=${App.panel} back=${backNav} view=${App.route.view} backAtHome=${window.ZG_back()}`);
-      Player.pause();
+    } else if (extra === 'whatsnew') {
+      // плашка «Что нового»: принудительно и как после обновления (раньше стояла 2.2.1)
+      App.settings.seenVersion = '2.2.1';
+      App.settings.freshInstall = false;
+      await App.whatsNew(false, '2.2.3');
+      await wait(700);
+      console.warn(`SELFTEST whatsnew: shown=${Boolean($('.wn-back'))} items=${$$('.wn-item').length} seen=${App.settings.seenVersion}`);
     } else if (extra === 'lyrext') {
       // Тексты: сколько треков чарта без синхронизированного текста в Zvuk и сколько из них нашлось в LRCLIB
       const pop = await api('popular');
