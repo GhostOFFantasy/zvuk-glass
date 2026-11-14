@@ -45,8 +45,6 @@ struct Args {
     vizstyle: Option<String>,
     login_preview: bool,
     updtest: bool,
-    /// служебно: мобильный интерфейс в узком окне (проверка раскладки для телефона на компьютере)
-    mobile_preview: bool,
 }
 
 impl Args {
@@ -64,7 +62,6 @@ impl Args {
                 "--vizstyle" => a.vizstyle = v,
                 "--login-preview" => a.login_preview = true,
                 "--updtest" => a.updtest = true,
-                "--mobile-preview" => a.mobile_preview = true,
                 _ => {}
             }
         }
@@ -189,6 +186,7 @@ async fn zvuk_call(app: S<'_>, method: String, args: Vec<Value>) -> Result<Value
 fn settings_get(app: S<'_>) -> Value {
     let mut p = app.store.public();
     p.insert("mediaUrls".into(), media::media_urls(&app.store));
+    p.insert("freshInstall".into(), json!(app.store.fresh));
     Value::Object(p)
 }
 
@@ -560,34 +558,6 @@ fn debug_mouse(app: S<'_>, window: WebviewWindow, x: f64, y: f64, kind: Option<S
     winx::cdp(&window, "Input.dispatchMouseEvent", p.to_string());
 }
 
-/// Служебно: касание пальцем (проверка жестов мобильного интерфейса на компьютере, только в режиме снимков).
-/// kind: touchStart | touchMove | touchEnd.
-#[tauri::command]
-fn debug_touch(app: S<'_>, window: WebviewWindow, x: f64, y: f64, kind: String) {
-    if app.args.screenshot.is_none() {
-        return;
-    }
-    let points = if kind == "touchEnd" { json!([]) } else { json!([{ "x": x, "y": y, "radiusX": 8, "radiusY": 8, "force": 1 }]) };
-    let p = json!({ "type": kind, "touchPoints": points });
-    winx::cdp(&window, "Input.dispatchTouchEvent", p.to_string());
-}
-
-/// Android: отступы строки состояния, полосы жестов, выреза камеры и клавиатуры (CSS-пиксели).
-#[tauri::command]
-async fn mobile_insets(handle: AppHandle) -> Value {
-    #[cfg(target_os = "android")]
-    {
-        let r = tauri::async_runtime::spawn_blocking(move || mobile::call(&handle, "insets", json!({}))).await;
-        if let Ok(Ok(v)) = r {
-            if let Some(s) = v.get("json").and_then(Value::as_str).filter(|s| !s.is_empty()) {
-                return serde_json::from_str(s).unwrap_or(Value::Null);
-            }
-        }
-    }
-    let _ = handle;
-    Value::Null
-}
-
 /// Яркость того, что сейчас видно в окне: уменьшенная серая копия кадра (ширина `width`, байт на точку,
 /// base64). По ней интерфейс подбирает светлый или тёмный цвет над клипом. Кадр никуда не уходит и не сохраняется.
 #[tauri::command]
@@ -630,7 +600,7 @@ fn init_script(a: &Args) -> String {
     if let Some(v) = &a.vizstyle {
         init.insert("vizstyle".into(), json!(v));
     }
-    if cfg!(mobile) || a.mobile_preview {
+    if cfg!(mobile) {
         init.insert("mobile".into(), json!(true));
     }
     format!("window.__ZG_ARGS__ = {};", Value::Object(init))
@@ -671,11 +641,8 @@ fn create_window(handle: &AppHandle, app: &Arc<App>) -> tauri::Result<WebviewWin
 
     let mut b = WebviewWindowBuilder::new(handle, "main", WebviewUrl::App("index.html".into()))
         .title("Zvuk Glass")
-        .inner_size(
-            if a.mobile_preview { 412.0 } else if shot { 1400.0 } else { num("width").unwrap_or(1360.0) },
-            if a.mobile_preview { 892.0 } else if shot { 900.0 } else { num("height").unwrap_or(880.0) },
-        )
-        .min_inner_size(if a.mobile_preview { 320.0 } else { 980.0 }, if a.mobile_preview { 560.0 } else { 640.0 })
+        .inner_size(if shot { 1400.0 } else { num("width").unwrap_or(1360.0) }, if shot { 900.0 } else { num("height").unwrap_or(880.0) })
+        .min_inner_size(980.0, 640.0)
         .decorations(false)
         .shadow(true)
         .visible(false)
@@ -932,8 +899,6 @@ pub fn run() {
             debug_log,
             debug_mouse,
             ui_probe,
-            debug_touch,
-            mobile_insets,
             lyrics_external,
         ])
         .setup(move |tapp| {

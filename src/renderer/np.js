@@ -195,7 +195,7 @@
     eqBox.classList.toggle('off', !e.enabled);
     eqBox.querySelector('[data-ne="on"]').classList.toggle('on', e.enabled);
     eqBox.querySelector('[data-ne="comp"]').classList.toggle('on', e.compressor);
-    eqBox.querySelector('.ne-state').textContent = e.enabled ? (AudioFX.PRESETS[e.preset]?.name || 'Свой') : 'выключен';
+    eqBox.querySelector('.ne-state').textContent = e.enabled ? AudioFX.presetName() : 'выключен';
     Views.eq.paint(eqBox, '');
     // ряд пресетов перерисовываем только при смене пресета — иначе сбрасывается прокрутка
     if (lastPreset !== e.preset) {

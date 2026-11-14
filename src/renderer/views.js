@@ -588,32 +588,6 @@
   };
 
   // ---------- Любимые треки ----------
-  // ---------- Моё (телефон): коллекция, плейлисты, настройки — то, что на компьютере в боковой панели ----------
-  Views.library = async (view) => {
-    const name = App.displayName();
-    const av = App.avatarUrl(120);
-    const tile = (viewId, ic, label, sub = '') =>
-      `<button class="lib-tile glass" data-act="nav" data-view="${viewId}">${icon(ic)}<b>${label}</b>${sub ? `<small>${sub}</small>` : ''}</button>`;
-    view.innerHTML = `<div class="lib-head">
-        <h1 class="page-title">Моё</h1>
-        <button class="lib-profile" data-act="nav" data-view="settings" title="Настройки">${av ? `<img src="${esc(av)}" alt="">` : `<span>${esc(name[0] || 'Z')}</span>`}</button>
-      </div>
-      <div class="lib-tiles">
-        ${tile('liked', 'heartFill', 'Любимые треки', App.likes.track.size ? tracksWord(App.likes.track.size) : '')}
-        ${tile('playlists', 'playlist', 'Плейлисты')}
-        ${tile('albums', 'album', 'Альбомы')}
-        ${tile('artists', 'mic', 'Исполнители')}
-        ${tile('history', 'clock', 'История')}
-        ${tile('visualizer', 'viz', 'Визуализатор')}
-        ${tile('equalizer', 'eq', 'Эквалайзер')}
-        ${tile('settings', 'settings', 'Настройки')}
-      </div>
-      <section class="section"><div class="section-head"><h2>Мои плейлисты</h2>
-        <button class="more" data-act="create-playlist">${icon('plus')}Новый</button></div>
-        <div class="grid">${(App.playlists || []).filter((p) => App.isOwnPlaylist(p)).map(playlistCard).join('') || '<div class="muted small">Пока нет своих плейлистов</div>'}</div>
-      </section>`;
-  };
-
   Views.liked = async (view) => {
     view.innerHTML = `<div class="hero" style="--hero:var(--accent-2)">
         <div class="hero-cover"><div class="tile-art" style="--t1:var(--accent);--t2:var(--accent-2)">${icon('heartFill')}</div></div>
@@ -819,9 +793,18 @@
     });
   }
   /** Кнопки пресетов (активный подсвечен, «Свой» — если ползунки двигали вручную). */
-  const eqPresetChips = () =>
-    Object.entries(AudioFX.PRESETS).map(([id, p]) => `<button class="chip${AudioFX.eq.preset === id ? ' on' : ''}" data-eqp="${id}">${p.name}</button>`).join('') +
-    (AudioFX.eq.preset === 'custom' ? '<button class="chip on">Свой</button>' : '');
+  // Готовые пресеты, «Свой» (последние ручные настройки — не пропадает при переключении) и свои с названиями.
+  // manage — на странице эквалайзера ещё кнопка «Сохранить как пресет».
+  const eqPresetChips = (manage = false) => {
+    const cur = AudioFX.eq.preset;
+    const chip = (id, name, cls = '') => `<button class="chip${cls}${cur === id ? ' on' : ''}" data-eqp="${esc(id)}" title="${esc(name)}">${esc(name)}</button>`;
+    return (
+      Object.entries(AudioFX.PRESETS).map(([id, p]) => chip(id, p.name)).join('') +
+      chip('custom', 'Свой', ' eq-own') +
+      (AudioFX.eq.user || []).map((p) => chip(p.id, p.name, ' eq-user')).join('') +
+      (manage ? `<button class="chip eq-add" data-eqsave title="Сохранить текущие настройки как свой пресет">${icon('plus')}Сохранить как пресет</button>` : '')
+    );
+  };
   Views.eq = { slider: eqSlider, paint: paintEqSliders, bind: bindEqSliders, presets: eqPresetChips };
 
   Views.equalizer = async (view) => {
@@ -837,6 +820,7 @@
         </div>
       </div>
       <div class="eq-presets" id="eqPresets"></div>
+      <div class="eq-manage" id="eqManage"></div>
       <div class="eq-options">
         <div class="opt"><button class="switch${eq.compressor ? ' on' : ''}" id="eqComp"></button>Компрессор — выравнивает громкость тихих и громких мест</div>
         <button class="btn" id="eqReset">${icon('refresh')}Сбросить</button>
@@ -850,7 +834,13 @@
       view.querySelector('#eqSwitch').classList.toggle('on', e.enabled);
       view.querySelector('#eqComp').classList.toggle('on', e.compressor);
       paintEqSliders(view);
-      view.querySelector('#eqPresets').innerHTML = eqPresetChips();
+      view.querySelector('#eqPresets').innerHTML = eqPresetChips(true);
+      const u = AudioFX.userPreset(e.preset);
+      view.querySelector('#eqManage').innerHTML = u
+        ? `<span>Свой пресет «${esc(u.name)}» — изменения ползунков сохраняются в нём</span><button class="btn small" data-eqrename>${icon('edit')}Переименовать</button><button class="btn small" data-eqdelete>${icon('trash')}Удалить</button>`
+        : e.preset === 'custom'
+          ? '<span>«Свой» — ваши последние ручные настройки. Они не пропадут, если переключиться на другой пресет и обратно.</span>'
+          : '';
     };
     // изменения из мини-эквалайзера в полноэкранном плеере
     const onExternal = () => (view.contains(panel) ? sync() : window.removeEventListener('zg:eq', onExternal));
@@ -869,11 +859,32 @@
       AudioFX.reset();
       sync();
     });
-    view.querySelector('#eqPresets').addEventListener('click', (e) => {
+    view.querySelector('#eqPresets').addEventListener('click', async (e) => {
+      if (e.target.closest('[data-eqsave]')) {
+        const name = await modal({ title: 'Свой пресет', text: 'Текущие настройки сохранятся под этим названием. Потом их можно менять — пресет запомнит изменения.', input: '', okText: 'Сохранить' });
+        if (name && AudioFX.savePreset(name)) toast(`Пресет «${name}» сохранён`, { iconName: 'check' });
+        else if (name) toast('Слишком много своих пресетов — удалите ненужные', { error: true });
+        sync();
+        return;
+      }
       const b = e.target.closest('[data-eqp]');
       if (!b) return;
       AudioFX.setPreset(b.dataset.eqp);
       if (!AudioFX.eq.enabled) AudioFX.setEnabled(true);
+      sync();
+    });
+    // свой пресет выбран — его можно переименовать или удалить
+    view.querySelector('#eqManage').addEventListener('click', async (e) => {
+      const id = AudioFX.eq.preset;
+      const u = AudioFX.userPreset(id);
+      if (!u) return;
+      if (e.target.closest('[data-eqrename]')) {
+        const name = await modal({ title: 'Название пресета', input: u.name, okText: 'Сохранить' });
+        if (name) AudioFX.renamePreset(id, name);
+      } else if (e.target.closest('[data-eqdelete]')) {
+        const ok = await modal({ title: `Удалить пресет «${u.name}»?`, text: 'Его настройки останутся в пресете «Свой».', okText: 'Удалить', danger: true });
+        if (ok) AudioFX.deletePreset(id);
+      }
       sync();
     });
     sync();
@@ -940,7 +951,7 @@
             <button class="${q === 'flac' ? 'on' : ''}" data-act="quality" data-q="flac">FLAC</button>
             <button class="${q === 'high' ? 'on' : ''}" data-act="quality" data-q="high">320 кбит/с</button>
             <button class="${q === 'mid' ? 'on' : ''}" data-act="quality" data-q="mid">128 кбит/с</button></div>`)}
-          ${row('Эквалайзер', AudioFX.eq.enabled ? `Включён · ${esc(AudioFX.PRESETS[AudioFX.eq.preset]?.name || 'свой')}` : 'Выключен', `<button class="btn small" data-act="nav" data-view="equalizer">${icon('eq')}Открыть</button>`)}
+          ${row('Эквалайзер', AudioFX.eq.enabled ? `Включён · ${esc(AudioFX.presetName())}` : 'Выключен', `<button class="btn small" data-act="nav" data-view="equalizer">${icon('eq')}Открыть</button>`)}
           ${row('Визуализатор', 'Мягкая анимация под ритм, фон — обложка, своя картинка, видео или официальный клип. Есть и в полноэкранном плеере.', `<button class="btn small" data-act="nav" data-view="visualizer">${icon('viz')}Открыть</button>`)}
           ${row('Тексты из LRCLIB', 'Если в Zvuk у песни нет текста или он без привязки ко времени, приложение найдёт синхронизированный текст в открытой базе LRCLIB. Туда уходят только исполнитель, название и длительность трека.', `<button class="switch${App.settings.lyrics?.external !== false ? ' on' : ''}" data-act="lyrics-ext"></button>`)}
         </div>
@@ -1117,13 +1128,15 @@
       else (line = st.state === 'none' ? 'Установлена последняя версия' : 'Обновления проверяются автоматически'), (ctrl = btn('check', 'Проверить обновления', 'refresh'));
       card.querySelector('#appVer').textContent = st.current ? 'v' + st.current : '';
       card.querySelector('#updLine').innerHTML = line;
-      card.querySelector('#updCtrl').innerHTML = ctrl;
+      // плашка с изменениями текущей версии — открыть ещё раз
+      card.querySelector('#updCtrl').innerHTML = btn('news', 'Что нового', 'sparkle') + ctrl;
     };
     document.addEventListener('zg:update', renderAbout);
     view.querySelector('#aboutCard').addEventListener('click', (e) => {
       const b = e.target.closest('[data-updact]');
       if (!b) return;
       if (b.dataset.updact === 'install') App.installUpdate();
+      else if (b.dataset.updact === 'news') App.whatsNew(true);
       else App.checkUpdates();
     });
     renderAbout();

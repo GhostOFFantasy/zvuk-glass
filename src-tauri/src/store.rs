@@ -10,7 +10,8 @@ use serde_json::{json, Map, Value};
 
 use crate::crypt;
 
-pub const PUBLIC_KEYS: [&str; 11] = ["quality", "volume", "shuffle", "repeat", "liquidGlass", "wave", "custom", "eq", "viz", "profileLocal", "lyrics"];
+// seenVersion — версия, о новинках которой пользователь уже знает (плашка «Что нового» после обновления)
+pub const PUBLIC_KEYS: [&str; 12] = ["quality", "volume", "shuffle", "repeat", "liquidGlass", "wave", "custom", "eq", "viz", "profileLocal", "lyrics", "seenVersion"];
 
 fn defaults() -> Map<String, Value> {
     let v = json!({
@@ -36,12 +37,15 @@ pub struct Store {
     file: PathBuf,
     data: Arc<Mutex<Map<String, Value>>>,
     tx: Mutex<Sender<()>>,
+    /// settings.json не было до этого запуска — приложение только что установлено
+    pub fresh: bool,
 }
 
 impl Store {
     pub fn open(dir: &Path) -> Self {
         let file = dir.join("settings.json");
         let mut data = defaults();
+        let fresh = !file.exists();
         if let Ok(text) = std::fs::read_to_string(&file) {
             if let Ok(Value::Object(saved)) = serde_json::from_str::<Value>(&text) {
                 for (k, v) in saved {
@@ -63,7 +67,7 @@ impl Store {
                 }
             });
         }
-        let store = Self { dir: dir.to_path_buf(), file, data, tx: Mutex::new(tx) };
+        let store = Self { dir: dir.to_path_buf(), file, data, tx: Mutex::new(tx), fresh };
         // 1.4: тяжёлый эффект преломления выключен по умолчанию
         store.update(|d| {
             if !d.get("migr14").and_then(Value::as_bool).unwrap_or(false) {

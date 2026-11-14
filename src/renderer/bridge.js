@@ -52,8 +52,6 @@
       thumbarIcons: (icons) => invoke('thumbar_icons', { icons }).catch(() => {}),
       appIcon: () => {}, // значок приложения теперь встроен при сборке
     },
-    /** Телефон: отступы системных панелей и клавиатуры { top, bottom, left, right, ime }. */
-    mobile: { insets: () => invoke('mobile_insets').catch(() => null) },
     /** Текст песни из LRCLIB: { text, synced, source } или null. */
     lyrics: {
       external: (t) =>
@@ -107,7 +105,6 @@
     debug: {
       log: (msg) => invoke('debug_log', { msg: String(msg) }).catch(() => {}),
       mouse: (x, y, kind) => invoke('debug_mouse', { x, y, kind: kind || null }).catch(() => {}),
-      touch: (x, y, kind) => invoke('debug_touch', { x, y, kind }).catch(() => {}),
     },
   };
 
