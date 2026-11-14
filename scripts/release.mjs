@@ -56,6 +56,27 @@ const GH = (() => {
   fail('Не найден GitHub CLI (gh). Установите: winget install GitHub.cli');
 })();
 
+/** Подпись установщика с привязкой к другой версии (для мостика latest.json). Возвращает platforms. */
+function signBridge(file, version, fileUrl) {
+  const dir = join(root, 'dist', 'bridge');
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  const copy = join(dir, 'installer.exe');
+  copyFileSync(file, copy);
+  const cliJs = join(root, 'node_modules', '@tauri-apps', 'cli', 'tauri.js');
+  const s = spawnSync(process.execPath, [cliJs, 'signer', 'sign', '--private-key-path', keyPath, '--app-version', version, copy], {
+    cwd: root,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, TAURI_SIGNING_PRIVATE_KEY_PASSWORD: '' },
+  });
+  if (s.status !== 0 || !existsSync(copy + '.sig')) fail('Не удалось подписать установщик для перехода со старых версий (мостик latest.json)');
+  const signature = readFileSync(copy + '.sig', 'utf8').trim();
+  const comment = Buffer.from(signature, 'base64').toString('utf8');
+  if (!comment.includes(`version:${version}`)) fail(`Подпись мостика не привязана к версии ${version}`);
+  const p = { signature, url: fileUrl };
+  return { 'windows-x86_64': p, 'windows-x86_64-nsis': p };
+}
+
 // ---------- Проверки ----------
 let token = '';
 try {
@@ -159,7 +180,11 @@ writeFileSync(join(dist, 'update.json'), JSON.stringify({ version: next, notes, 
 const num = (v) => v.split('.').map(Number).reduce((s, x) => s * 1000 + x, 0);
 const bridgeVersion = num(next) > num('2.3.0') ? next : '2.3.1';
 const bridgeNotes = bridgeVersion === next ? notes : `Переход на новую нумерацию версий: после установки будет версия ${next}.\n\n${notes}`;
-writeFileSync(join(dist, 'latest.json'), JSON.stringify({ version: bridgeVersion, notes: bridgeNotes, pub_date: pubDate, platforms }, null, 2));
+// Модуль обновлений сверяет версию, записанную в подписи, с объявленной — поэтому для мостика тот же
+// установщик подписываем ещё раз своим ключом с привязкой к версии мостика.
+let bridgePlatforms = platforms;
+if (bridgeVersion !== next) bridgePlatforms = signBridge(setup, bridgeVersion, url);
+writeFileSync(join(dist, 'latest.json'), JSON.stringify({ version: bridgeVersion, notes: bridgeNotes, pub_date: pubDate, platforms: bridgePlatforms }, null, 2));
 // для копий 1.x на Electron: они читают latest.yml и сами переходят на новую версию
 const sha512 = createHash('sha512').update(readFileSync(setup)).digest('base64');
 const size = statSync(setup).size;
