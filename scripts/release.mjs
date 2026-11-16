@@ -149,8 +149,11 @@ const notes = notesArg || changelogNotes || `Zvuk Glass ${next}`;
 if (!existing) run(GH, ['release', 'create', tag, ...R, '--draft', '--verify-tag', '--title', `Zvuk Glass ${next}`, '--notes', notes], ghEnv);
 
 step('Собираем приложение и установщик (несколько минут)');
-const cli = join(root, 'node_modules', '@tauri-apps', 'cli', 'tauri.js');
-const b = spawnSync(process.execPath, [cli, 'build'], {
+// Вызываем программный API: в agent-среде process.execPath может указывать на host-приложение,
+// а bin-обёртка tauri.js ошибочно передаёт этот путь самому cargo-tauri как субкоманду.
+const cli = join(root, 'node_modules', '@tauri-apps', 'cli', 'main.js');
+const runner = `require(${JSON.stringify(cli)}).run(['build'],'tauri').catch(e=>{console.error(e);process.exit(1)})`;
+const b = spawnSync(process.execPath, ['-e', runner], {
   cwd: root,
   stdio: 'inherit',
   env: withPath({ ...process.env, TAURI_SIGNING_PRIVATE_KEY: keyPath, TAURI_SIGNING_PRIVATE_KEY_PASSWORD: '' }),
