@@ -11,7 +11,21 @@ use serde_json::{json, Map, Value};
 use crate::crypt;
 
 // seenVersion — версия, о новинках которой пользователь уже знает (плашка «Что нового» после обновления)
-pub const PUBLIC_KEYS: [&str; 13] = ["quality", "volume", "shuffle", "repeat", "liquidGlass", "wave", "custom", "eq", "viz", "profileLocal", "lyrics", "seenVersion", "clipLat"];
+pub const PUBLIC_KEYS: [&str; 13] = [
+    "quality",
+    "volume",
+    "shuffle",
+    "repeat",
+    "liquidGlass",
+    "wave",
+    "custom",
+    "eq",
+    "viz",
+    "profileLocal",
+    "lyrics",
+    "seenVersion",
+    "clipLat",
+];
 
 fn defaults() -> Map<String, Value> {
     let v = json!({
@@ -67,7 +81,13 @@ impl Store {
                 }
             });
         }
-        let store = Self { dir: dir.to_path_buf(), file, data, tx: Mutex::new(tx), fresh };
+        let store = Self {
+            dir: dir.to_path_buf(),
+            file,
+            data,
+            tx: Mutex::new(tx),
+            fresh,
+        };
         // 1.4: тяжёлый эффект преломления выключен по умолчанию
         store.update(|d| {
             if !d.get("migr14").and_then(Value::as_bool).unwrap_or(false) {
@@ -82,7 +102,12 @@ impl Store {
     }
 
     pub fn get(&self, key: &str) -> Value {
-        self.data.lock().unwrap().get(key).cloned().unwrap_or(Value::Null)
+        self.data
+            .lock()
+            .unwrap()
+            .get(key)
+            .cloned()
+            .unwrap_or(Value::Null)
     }
 
     pub fn set(&self, key: &str, v: Value) {
@@ -100,7 +125,10 @@ impl Store {
 
     pub fn public(&self) -> Map<String, Value> {
         let d = self.data.lock().unwrap();
-        PUBLIC_KEYS.iter().map(|k| (k.to_string(), d.get(*k).cloned().unwrap_or(Value::Null))).collect()
+        PUBLIC_KEYS
+            .iter()
+            .map(|k| (k.to_string(), d.get(*k).cloned().unwrap_or(Value::Null)))
+            .collect()
     }
 
     pub fn save(&self) {
@@ -129,7 +157,10 @@ impl Store {
             }
         }
         // Значение без шифрования (шифрование было недоступно) — зашифруем, как только получится
-        let plain = self.get(&format!("{prefix}Plain")).as_str().map(String::from)?;
+        let plain = self
+            .get(&format!("{prefix}Plain"))
+            .as_str()
+            .map(String::from)?;
         if let Some(s) = crypt::seal(&plain) {
             self.update(|d| {
                 d.insert(format!("{prefix}Dpapi"), serde_json::json!(s));
@@ -142,22 +173,72 @@ impl Store {
 
     /// Есть ли сохранённый секрет (без расшифровки).
     pub fn has_secret(&self, prefix: &str) -> bool {
-        ["Dpapi", "Enc", "Plain"].iter().any(|s| self.get(&format!("{prefix}{s}")).as_str().is_some_and(|v| !v.is_empty()))
+        ["Dpapi", "Enc", "Plain"].iter().any(|s| {
+            self.get(&format!("{prefix}{s}"))
+                .as_str()
+                .is_some_and(|v| !v.is_empty())
+        })
     }
 
-    pub fn write_secret(&self, prefix: &str, value: Option<&str>) {
+    /// Удаление всегда возможно. Новый секрет сохраняется только в защищённом виде:
+    /// если шифрование недоступно, прежний секрет остаётся нетронутым.
+    pub fn write_secret(&self, prefix: &str, value: Option<&str>) -> Result<(), &'static str> {
+        self.write_secret_with(prefix, value, crypt::seal)
+    }
+
+    fn write_secret_with(
+        &self,
+        prefix: &str,
+        value: Option<&str>,
+        seal: impl FnOnce(&str) -> Option<String>,
+    ) -> Result<(), &'static str> {
+        let sealed = match value.filter(|v| !v.is_empty()) {
+            Some(v) => Some(
+                seal(v)
+                    .ok_or("Не удалось защитить ключ средствами системы. Секрет не сохранён.")?,
+            ),
+            None => None,
+        };
         self.update(|d| {
             d.remove(&format!("{prefix}Dpapi"));
             d.remove(&format!("{prefix}Enc"));
             d.remove(&format!("{prefix}Plain"));
-            if let Some(v) = value.filter(|v| !v.is_empty()) {
-                match crypt::seal(v) {
-                    Some(s) => d.insert(format!("{prefix}Dpapi"), json!(s)),
-                    None => d.insert(format!("{prefix}Plain"), json!(v)),
-                };
+            if let Some(s) = sealed {
+                d.insert(format!("{prefix}Dpapi"), json!(s));
             }
             true
         });
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failed_encryption_does_not_replace_existing_secret() {
+        let dir = std::env::current_dir()
+            .unwrap()
+            .join("target/test-data")
+            .join(format!("store-{}", std::process::id()));
+        let store = Store::open(&dir);
+        store
+            .write_secret_with("token", Some("old-test-value"), |_| {
+                Some("sealed-test-value".into())
+            })
+            .unwrap();
+        assert!(store
+            .write_secret_with("token", Some("new-test-value"), |_| None)
+            .is_err());
+        assert_eq!(store.get("tokenDpapi").as_str(), Some("sealed-test-value"));
+        assert!(store.get("tokenPlain").is_null());
+        store.write_secret_with("token", None, |_| None).unwrap();
+        assert!(store.get("tokenDpapi").is_null());
+        store.flush();
+        drop(store);
+        std::thread::sleep(Duration::from_millis(350));
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
 

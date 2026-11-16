@@ -1,7 +1,8 @@
 //! Android: секреты (токен Zvuk, ключ YouTube) шифруются ключом из Android Keystore (AES-256-GCM,
 //! Kotlin: ZgSecrets.kt). Ключ не покидает защищённое хранилище телефона, поэтому копия файлов
 //! приложения без самого телефона бесполезна. Вызов через JNI — без перехода в главный поток.
-//! Если Keystore недоступен, Store сохранит значение как есть (только в закрытой папке приложения).
+//! Если Keystore недоступен, новый секрет не сохраняется. Старые значения остаются читаемыми
+//! и переносятся в защищённое хранилище, как только шифрование снова становится доступным.
 
 use std::path::Path;
 
@@ -17,12 +18,28 @@ fn call(method: &str, arg: &str) -> Option<String> {
     let result = (|| -> jni::errors::Result<Option<String>> {
         let context = unsafe { JObject::from_raw(ctx.context().cast()) };
         // классы приложения видны только через его загрузчик (FindClass из чужого потока их не найдёт)
-        let loader = env.call_method(&context, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])?.l()?;
+        let loader = env
+            .call_method(&context, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])?
+            .l()?;
         let name = env.new_string("com.zvukglass.app.ZgSecrets")?;
-        let cls = env.call_method(&loader, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;", &[JValue::Object(&name)])?.l()?;
+        let cls = env
+            .call_method(
+                &loader,
+                "loadClass",
+                "(Ljava/lang/String;)Ljava/lang/Class;",
+                &[JValue::Object(&name)],
+            )?
+            .l()?;
         let cls = JClass::from(cls);
         let jarg = env.new_string(arg)?;
-        let out = env.call_static_method(&cls, method, "(Ljava/lang/String;)Ljava/lang/String;", &[JValue::Object(&jarg)])?.l()?;
+        let out = env
+            .call_static_method(
+                &cls,
+                method,
+                "(Ljava/lang/String;)Ljava/lang/String;",
+                &[JValue::Object(&jarg)],
+            )?
+            .l()?;
         if out.is_null() {
             return Ok(None);
         }

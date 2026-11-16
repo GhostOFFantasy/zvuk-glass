@@ -49,8 +49,16 @@ pub struct Streams {
 
 impl Streams {
     pub fn new() -> Self {
-        let http = crate::net::builder().user_agent(crate::zvuk::user_agent()).connect_timeout(Duration::from_secs(15)).build().expect("http client");
-        Self { http, map: Mutex::new(HashMap::new()), next: Mutex::new(1) }
+        let http = crate::net::builder()
+            .user_agent(crate::zvuk::user_agent())
+            .connect_timeout(Duration::from_secs(15))
+            .build()
+            .expect("http client");
+        Self {
+            http,
+            map: Mutex::new(HashMap::new()),
+            next: Mutex::new(1),
+        }
     }
 
     /// Регистрирует ссылку CDN и возвращает адрес для плеера.
@@ -68,19 +76,42 @@ impl Streams {
     }
 
     pub async fn serve(&self, req: Request<Vec<u8>>) -> Response<Vec<u8>> {
-        let id: Option<u64> = req.uri().path().strip_prefix("/s/").and_then(|s| s.parse().ok());
+        let id: Option<u64> = req
+            .uri()
+            .path()
+            .strip_prefix("/s/")
+            .and_then(|s| s.parse().ok());
         let url = id.and_then(|id| self.map.lock().unwrap().get(&id).map(|(u, _)| u.clone()));
-        let Some(url) = url else { return plain(StatusCode::NOT_FOUND) };
+        let Some(url) = url else {
+            return plain(StatusCode::NOT_FOUND);
+        };
         let (start, end) = parse_range(req.headers().get("range").and_then(|v| v.to_str().ok()));
         let start = start.unwrap_or(0);
-        let end = end.map(|e| e.min(start + STREAM_CHUNK - 1)).unwrap_or(start + STREAM_CHUNK - 1);
-        let res = match self.http.get(&url).header("Range", format!("bytes={start}-{end}")).send().await {
+        let end = end
+            .map(|e| e.min(start + STREAM_CHUNK - 1))
+            .unwrap_or(start + STREAM_CHUNK - 1);
+        let res = match self
+            .http
+            .get(&url)
+            .header("Range", format!("bytes={start}-{end}"))
+            .send()
+            .await
+        {
             Ok(r) => r,
             Err(_) => return plain(StatusCode::BAD_GATEWAY),
         };
         let status = res.status();
-        let ctype = res.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("audio/mpeg").to_string();
-        let crange = res.headers().get("content-range").and_then(|v| v.to_str().ok()).map(String::from);
+        let ctype = res
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("audio/mpeg")
+            .to_string();
+        let crange = res
+            .headers()
+            .get("content-range")
+            .and_then(|v| v.to_str().ok())
+            .map(String::from);
         let body = match res.bytes().await {
             Ok(b) => b.to_vec(),
             Err(_) => return plain(StatusCode::BAD_GATEWAY),
@@ -95,13 +126,16 @@ impl Streams {
         if let Some(cr) = crange {
             b = b.header("Content-Range", cr);
         }
-        b.body(body).unwrap_or_else(|_| plain(StatusCode::INTERNAL_SERVER_ERROR))
+        b.body(body)
+            .unwrap_or_else(|_| plain(StatusCode::INTERNAL_SERVER_ERROR))
     }
 }
 
 /// "bytes=a-b" → (Some(a), Some(b)); суффиксные диапазоны ("bytes=-500") здесь не нужны плееру.
 fn parse_range(h: Option<&str>) -> (Option<u64>, Option<u64>) {
-    let Some(r) = h.and_then(|h| h.trim().strip_prefix("bytes=")) else { return (None, None) };
+    let Some(r) = h.and_then(|h| h.trim().strip_prefix("bytes=")) else {
+        return (None, None);
+    };
     let r = r.split(',').next().unwrap_or("");
     let mut it = r.splitn(2, '-');
     let a = it.next().and_then(|s| s.trim().parse().ok());
@@ -110,7 +144,11 @@ fn parse_range(h: Option<&str>) -> (Option<u64>, Option<u64>) {
 }
 
 fn plain(code: StatusCode) -> Response<Vec<u8>> {
-    Response::builder().status(code).header("Access-Control-Allow-Origin", APP_ORIGIN).body(Vec::new()).unwrap()
+    Response::builder()
+        .status(code)
+        .header("Access-Control-Allow-Origin", APP_ORIGIN)
+        .body(Vec::new())
+        .unwrap()
 }
 
 // ---------- Свои файлы ----------
@@ -118,13 +156,21 @@ pub fn media_url(store: &Store, key: &str) -> Value {
     let m = store.get("media");
     let e = &m[key];
     match e.get("path").and_then(Value::as_str) {
-        Some(p) if Path::new(p).exists() => json!(format!("http://zgm.localhost/{key}?v={}", e.get("v").map(|v| v.to_string()).unwrap_or_default())),
+        Some(p) if Path::new(p).exists() => json!(format!(
+            "http://zgm.localhost/{key}?v={}",
+            e.get("v").map(|v| v.to_string()).unwrap_or_default()
+        )),
         _ => Value::Null,
     }
 }
 
 pub fn media_urls(store: &Store) -> Value {
-    Value::Object(MEDIA_KEYS.iter().map(|k| (k.to_string(), media_url(store, k))).collect())
+    Value::Object(
+        MEDIA_KEYS
+            .iter()
+            .map(|k| (k.to_string(), media_url(store, k)))
+            .collect(),
+    )
 }
 
 pub fn drop_media(store: &Store, key: &str) {
@@ -144,7 +190,11 @@ pub fn drop_media(store: &Store, key: &str) {
 
 /// Сохраняет выбранный файл: небольшие копирует к себе (переживут удаление оригинала), большие видео — используем на месте.
 pub fn adopt_media(store: &Store, key: &str, src: &Path) -> Result<Value, String> {
-    let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    let ext = src
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
     let mime = mime_of(&ext).ok_or("Неподдерживаемый формат файла")?;
     drop_media(store, key);
     let size = std::fs::metadata(src).map_err(|e| e.to_string())?.len();
@@ -163,7 +213,8 @@ pub fn adopt_media(store: &Store, key: &str, src: &Path) -> Result<Value, String
         if !m.is_object() {
             *m = json!({});
         }
-        m[key] = json!({ "path": file.to_string_lossy(), "mime": mime, "copied": copied, "v": now });
+        m[key] =
+            json!({ "path": file.to_string_lossy(), "mime": mime, "copied": copied, "v": now });
         true
     });
     Ok(media_url(store, key))
@@ -176,11 +227,18 @@ pub fn serve_file(store: &Store, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
         return plain(StatusCode::NOT_FOUND);
     }
     let m = store.get("media");
-    let (Some(path), mime) = (m[&key].get("path").and_then(Value::as_str), m[&key].get("mime").and_then(Value::as_str).unwrap_or("application/octet-stream"))
-    else {
+    let (Some(path), mime) = (
+        m[&key].get("path").and_then(Value::as_str),
+        m[&key]
+            .get("mime")
+            .and_then(Value::as_str)
+            .unwrap_or("application/octet-stream"),
+    ) else {
         return plain(StatusCode::NOT_FOUND);
     };
-    let Ok(mut f) = std::fs::File::open(path) else { return plain(StatusCode::NOT_FOUND) };
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return plain(StatusCode::NOT_FOUND);
+    };
     let size = f.metadata().map(|m| m.len()).unwrap_or(0);
     let range = req.headers().get("range").and_then(|v| v.to_str().ok());
     let base = |code: u16| {
@@ -197,14 +255,24 @@ pub fn serve_file(store: &Store, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
         if f.read_to_end(&mut buf).is_err() {
             return plain(StatusCode::INTERNAL_SERVER_ERROR);
         }
-        return base(200).header("Content-Length", buf.len().to_string()).body(buf).unwrap();
+        return base(200)
+            .header("Content-Length", buf.len().to_string())
+            .body(buf)
+            .unwrap();
     }
     let (a, b) = parse_range(range);
     let start = a.unwrap_or(0);
     if size == 0 || start >= size {
-        return Response::builder().status(416).header("Content-Range", format!("bytes */{size}")).body(Vec::new()).unwrap();
+        return Response::builder()
+            .status(416)
+            .header("Content-Range", format!("bytes */{size}"))
+            .body(Vec::new())
+            .unwrap();
     }
-    let end = b.unwrap_or(size - 1).min(size - 1).min(start + FILE_CHUNK - 1);
+    let end = b
+        .unwrap_or(size - 1)
+        .min(size - 1)
+        .min(start + FILE_CHUNK - 1);
     let len = (end - start + 1) as usize;
     let mut buf = vec![0u8; len];
     if f.seek(SeekFrom::Start(start)).is_err() || f.read_exact(&mut buf).is_err() {

@@ -54,12 +54,22 @@ impl Lyrics {
             .timeout(Duration::from_secs(10))
             .build()
             .expect("http client");
-        Self { http, cache: Mutex::new(HashMap::new()) }
+        Self {
+            http,
+            cache: Mutex::new(HashMap::new()),
+        }
     }
 
     async fn get_json(&self, path: &str, params: &[(&str, String)]) -> Option<Value> {
-        let qs = url::form_urlencoded::Serializer::new(String::new()).extend_pairs(params.iter().map(|(k, v)| (*k, v.as_str()))).finish();
-        let res = self.http.get(format!("{BASE}{path}?{qs}")).send().await.ok()?;
+        let qs = url::form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(params.iter().map(|(k, v)| (*k, v.as_str())))
+            .finish();
+        let res = self
+            .http
+            .get(format!("{BASE}{path}?{qs}"))
+            .send()
+            .await
+            .ok()?;
         if !res.status().is_success() {
             return None;
         }
@@ -83,9 +93,17 @@ impl Lyrics {
     async fn lookup(&self, artist: &str, title: &str, duration: f64) -> Value {
         // 1. Точное совпадение по исполнителю, названию и длительности (±2 с на стороне LRCLIB)
         if duration > 0.0 {
-            let p = [("artist_name", artist.to_string()), ("track_name", title.to_string()), ("duration", format!("{}", duration.round() as i64))];
+            let p = [
+                ("artist_name", artist.to_string()),
+                ("track_name", title.to_string()),
+                ("duration", format!("{}", duration.round() as i64)),
+            ];
             if let Some(v) = self.get_json("/get", &p).await {
-                if let Some(s) = v.get("syncedLyrics").and_then(Value::as_str).filter(|s| !s.trim().is_empty()) {
+                if let Some(s) = v
+                    .get("syncedLyrics")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.trim().is_empty())
+                {
                     return json!({ "text": s, "synced": true, "source": "LRCLIB" });
                 }
             }
@@ -94,15 +112,26 @@ impl Lyrics {
         let want_t = norm(title);
         let want_a = norm(artist);
         let mut best: Option<(f64, Value)> = None;
-        let mut queries = vec![vec![("track_name", title.to_string()), ("artist_name", artist.to_string())]];
+        let mut queries = vec![vec![
+            ("track_name", title.to_string()),
+            ("artist_name", artist.to_string()),
+        ]];
         if norm(title) != title.to_lowercase() {
-            queries.push(vec![("track_name", want_t.clone()), ("artist_name", artist.to_string())]);
+            queries.push(vec![
+                ("track_name", want_t.clone()),
+                ("artist_name", artist.to_string()),
+            ]);
         }
         queries.push(vec![("q", format!("{artist} {want_t}"))]);
         for q in queries {
-            let Some(Value::Array(list)) = self.get_json("/search", &q).await else { continue };
+            let Some(Value::Array(list)) = self.get_json("/search", &q).await else {
+                continue;
+            };
             for c in list {
-                if c.get("instrumental").and_then(Value::as_bool).unwrap_or(false) {
+                if c.get("instrumental")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
                     continue;
                 }
                 let ct = norm(c.get("trackName").and_then(Value::as_str).unwrap_or(""));
@@ -110,9 +139,18 @@ impl Lyrics {
                 if !close(&ct, &want_t) || !close(&ca, &want_a) {
                     continue;
                 }
-                let dd = (c.get("duration").and_then(Value::as_f64).unwrap_or(0.0) - duration).abs();
-                let synced = c.get("syncedLyrics").and_then(Value::as_str).map(|s| !s.trim().is_empty()).unwrap_or(false);
-                let plain = c.get("plainLyrics").and_then(Value::as_str).map(|s| !s.trim().is_empty()).unwrap_or(false);
+                let dd =
+                    (c.get("duration").and_then(Value::as_f64).unwrap_or(0.0) - duration).abs();
+                let synced = c
+                    .get("syncedLyrics")
+                    .and_then(Value::as_str)
+                    .map(|s| !s.trim().is_empty())
+                    .unwrap_or(false);
+                let plain = c
+                    .get("plainLyrics")
+                    .and_then(Value::as_str)
+                    .map(|s| !s.trim().is_empty())
+                    .unwrap_or(false);
                 let score = if synced && (duration <= 0.0 || dd <= SYNC_TOLERANCE) {
                     100.0 - dd * 5.0 + if ct == want_t { 5.0 } else { 0.0 }
                 } else if plain || synced {
@@ -128,7 +166,9 @@ impl Lyrics {
                 break; // синхронизированный нужной версии уже есть
             }
         }
-        let Some((score, c)) = best else { return Value::Null };
+        let Some((score, c)) = best else {
+            return Value::Null;
+        };
         if score >= 50.0 {
             if let Some(s) = c.get("syncedLyrics").and_then(Value::as_str) {
                 return json!({ "text": s, "synced": true, "source": "LRCLIB" });
@@ -140,7 +180,11 @@ impl Lyrics {
             .and_then(Value::as_str)
             .filter(|s| !s.trim().is_empty())
             .map(String::from)
-            .or_else(|| c.get("syncedLyrics").and_then(Value::as_str).map(|s| strip_times(s)));
+            .or_else(|| {
+                c.get("syncedLyrics")
+                    .and_then(Value::as_str)
+                    .map(|s| strip_times(s))
+            });
         match plain {
             Some(t) => json!({ "text": t, "synced": false, "source": "LRCLIB" }),
             None => Value::Null,

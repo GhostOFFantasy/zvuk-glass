@@ -146,16 +146,29 @@
   // ---------- API с кэшем ----------
   const cache = new Map();
   const CACHE_TTL = 5 * 60 * 1000;
-  const CACHEABLE = new Set(['getRelease', 'getArtist', 'getPlaylist', 'search', 'getWaves', 'getLyrics', 'recommendations', 'synthesisPlaylists']);
+  const CACHE_MAX = 180;
+  const CACHE_TTLS = new Map([['getSubscription', 30 * 1000]]);
+  const CACHEABLE = new Set(['getRelease', 'getArtist', 'getPlaylist', 'search', 'getWaves', 'getLyrics', 'recommendations', 'synthesisPlaylists', 'getSubscription']);
+  function cacheSet(key, value) {
+    cache.delete(key);
+    cache.set(key, value);
+    while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
+  }
   async function api(method, ...args) {
     const key = CACHEABLE.has(method) ? method + ':' + JSON.stringify(args) : null;
     if (key) {
       const hit = cache.get(key);
-      if (hit && Date.now() - hit.t < CACHE_TTL) return hit.p;
+      if (hit && Date.now() - hit.t < (CACHE_TTLS.get(method) || CACHE_TTL)) {
+        // LRU: активные страницы не вытесняются сотней уникальных поисков.
+        cache.delete(key);
+        cache.set(key, hit);
+        return hit.p;
+      }
+      cache.delete(key);
     }
     const p = window.zvuk.call(method, ...args);
     if (key) {
-      cache.set(key, { t: Date.now(), p });
+      cacheSet(key, { t: Date.now(), p });
       p.catch(() => cache.delete(key));
     }
     return p;
@@ -163,6 +176,8 @@
   api.invalidate = (prefix) => {
     for (const k of [...cache.keys()]) if (k.startsWith(prefix)) cache.delete(k);
   };
+  // Только размеры для служебного теста: ключи запросов не раскрываются.
+  api.auditCache = () => window.__ZG_ARGS__?.screenshot ? { size: cache.size, limit: CACHE_MAX } : null;
 
   // ---------- Уведомления ----------
   function toast(msg, { error = false, iconName = null, ms = 3200 } = {}) {

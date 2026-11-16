@@ -213,6 +213,7 @@
   }, true);
 
   let openTimer = 0;
+  let closeTimer = 0;
   const NP = {
     get eqOpen() {
       return !eqBox.classList.contains('hidden');
@@ -238,6 +239,7 @@
     lyricsOn: localStorage.getItem('zg.npLyrics') === '1',
     vizOn: localStorage.getItem('zg.npViz') === '1',
     open() {
+      clearTimeout(closeTimer);
       if (this.lyricsOn && this.vizOn) this.vizOn = false;
       root.classList.remove('hidden', 'closing');
       root.classList.toggle('lyrics-on', this.lyricsOn);
@@ -256,8 +258,12 @@
       clearTimeout(openTimer);
       document.body.classList.remove('np-open');
       root.classList.add('closing');
-      setTimeout(() => {
+      clearTimeout(closeTimer);
+      closeTimer = setTimeout(() => {
+        // open() снимает closing и отменяет таймер; обычное закрытие обязано дойти до hidden.
+        if (!root.classList.contains('closing')) return;
         root.classList.add('hidden');
+        root.classList.remove('closing');
         this._unmountScene();
         for (const el of items.values()) el.remove();
         items.clear();

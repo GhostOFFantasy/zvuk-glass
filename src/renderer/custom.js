@@ -17,7 +17,7 @@
     compact: false,
     reduceMotion: false,
     miniViz: true,
-    design: 'glass', // glass — «жидкое стекло», classic — обычный плоский дизайн
+    design: 'orbit', // orbit — основная тема; glass — «жидкое стекло», classic — обычный плоский дизайн
     seekStyle: 'line', // line | glow | wave | liquid
     seekColor: 'white', // white | accent | rainbow
     seekHeight: 5,
@@ -137,6 +137,7 @@
       b.toggle('reduce-motion', s.reduceMotion);
       b.toggle('mini-viz-on', s.miniViz);
       b.toggle('design-classic', s.design === 'classic');
+      b.toggle('theme-orbit', s.design === 'orbit');
       // настоящее размытие под панелями нужно только поверх своих обоев с деталями
       b.toggle('bd-on', s.design !== 'classic' && (s.bgMode === 'image' || s.bgMode === 'video'));
       b.toggle('seek-beat', Boolean(s.seekBeat));
@@ -203,8 +204,9 @@
       this.refreshTheme();
     },
     refreshTheme() {
-      const t = this.s.accentMode === 'fixed' ? themeFromColor(this.s.accent) : this.trackTheme;
-      const key = JSON.stringify(t);
+      const orbital = { accent: '#8bc8ff', accent2: '#c5a6ff', c1: '#2e6da8', c2: '#725a9b', c3: '#d2a55c' };
+      const t = this.s.accentMode === 'fixed' ? themeFromColor(this.s.accent) : this.s.design === 'orbit' ? orbital : this.trackTheme;
+      const key = JSON.stringify([this.s.design, t]);
       if (key === this._themeKey) return; // та же тема — не трогаем стили страницы
       this._themeKey = key;
       applyTheme(t);

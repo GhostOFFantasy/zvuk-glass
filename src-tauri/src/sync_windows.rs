@@ -34,7 +34,9 @@ fn standardize(f: &mut Frames) {
     let n = f.len().max(1) as f32;
     for b in 0..NB {
         let m = f.iter().map(|x| x[b]).sum::<f32>() / n;
-        let sd = (f.iter().map(|x| (x[b] - m) * (x[b] - m)).sum::<f32>() / n).sqrt().max(1e-6);
+        let sd = (f.iter().map(|x| (x[b] - m) * (x[b] - m)).sum::<f32>() / n)
+            .sqrt()
+            .max(1e-6);
         for x in f.iter_mut() {
             x[b] = (x[b] - m) / sd;
         }
@@ -52,7 +54,10 @@ pub struct Sync {
 }
 
 fn now_ms() -> f64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64() * 1000.0).unwrap_or(0.0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64() * 1000.0)
+        .unwrap_or(0.0)
 }
 
 // ---------- Признаки ----------
@@ -63,7 +68,9 @@ fn features(mono: &[f32], rate: u32) -> Frames {
         return vec![];
     }
     let fft = FftPlanner::<f32>::new().plan_fft_forward(win);
-    let hann: Vec<f32> = (0..win).map(|i| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / win as f32).cos()).collect();
+    let hann: Vec<f32> = (0..win)
+        .map(|i| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / win as f32).cos())
+        .collect();
     // границы полос (логарифмически) в номерах бинов
     let edges: Vec<usize> = (0..=NF)
         .map(|k| {
@@ -134,7 +141,9 @@ fn best_match(q: &Frames, r: &Frames, lo: isize, hi: isize) -> Option<(f64, f32,
 /// аккорда дают несколько почти равных мест — какое из них верное, решает сверка нескольких замеров.
 fn matches(q: &Frames, r: &Frames, lo: isize, hi: isize, k: usize) -> Vec<(f64, f32)> {
     // 1) грубо — по хроме: аккорды отличают одно место песни от другого (атаки повторяются каждый такт)
-    let Some((clo, cs)) = ncc_scores(q, r, lo, hi, NF..NB) else { return vec![] };
+    let Some((clo, cs)) = ncc_scores(q, r, lo, hi, NF..NB) else {
+        return vec![];
+    };
     let mut idx: Vec<usize> = (0..cs.len()).collect();
     idx.sort_unstable_by(|a, b| cs[*b].total_cmp(&cs[*a]));
     let mut peaks: Vec<usize> = Vec::with_capacity(k);
@@ -168,9 +177,98 @@ fn matches(q: &Frames, r: &Frames, lo: isize, hi: isize, k: usize) -> Vec<(f64, 
         .collect()
 }
 
+#[derive(Clone, Copy, Debug)]
+struct Match {
+    lag: f64,
+    score: f32,
+    fine: f32,
+    rate: f64,
+}
+
+/// Пересчёт признаков клипа на временную шкалу трека: clipTime = trackTime * rate + offset.
+/// Клип со скоростью rate содержит опорный сигнал r[i * rate]. Чтобы совместить его с r,
+/// читаем кадры клипа в обратном направлении: q[i / rate]. FFT повторно не вычисляется.
+fn warp_frames(q: &Frames, rate: f64) -> Frames {
+    if q.len() < 2 || (rate - 1.0).abs() < 0.0001 {
+        return q.clone();
+    }
+    let n = ((q.len() - 1) as f64 * rate).floor() as usize + 1;
+    (0..n)
+        .filter_map(|i| {
+            let x = i as f64 / rate;
+            let j = x.floor() as usize;
+            let f = (x - j as f64) as f32;
+            if j + 1 >= q.len() {
+                return None;
+            }
+            let mut frame = [0f32; NB];
+            for b in 0..NB {
+                frame[b] = q[j][b] * (1.0 - f) + q[j + 1][b] * f;
+            }
+            Some(frame)
+        })
+        .collect()
+}
+
+/// Сначала ищем несколько мест по хроме, затем у каждого уточняем атаки и небольшой темп.
+/// Диапазон ±1,5 % покрывает небольшое отличие мастеринга; live/remix этим не «исправляется».
+fn refine_matches(q: &Frames, r: &Frames, lo: isize, hi: isize, k: usize) -> Vec<Match> {
+    let coarse = matches(q, r, lo, hi, k);
+    let mut out = Vec::new();
+    for (lag, chroma) in coarse.iter().take(4) {
+        let mut candidates: Vec<(Match, f32)> = Vec::new();
+        for step in -3..=3 {
+            let rate = 1.0 + step as f64 * 0.005;
+            let warped = warp_frames(q, rate);
+            let center = lag.round() as isize;
+            let Some((flo, fs)) = ncc_scores(&warped, r, center - 100, center + 100, 0..NB) else {
+                continue;
+            };
+            let Some((fi, fine)) = fs.iter().enumerate().max_by(|a, b| a.1.total_cmp(b.1)) else {
+                continue;
+            };
+            let fine_lag = flo + fi as isize;
+            let chroma_at = ncc_scores(&warped, r, fine_lag, fine_lag, NF..NB)
+                .and_then(|(_, s)| s.first().copied())
+                .unwrap_or(*chroma);
+            // Хрома определяет музыкальное место, атаки — точный сдвиг и темп.
+            let value = chroma_at * 0.45 + fine * 0.55;
+            candidates.push((
+                Match {
+                    lag: fine_lag as f64,
+                    score: value,
+                    fine: *fine,
+                    rate,
+                },
+                value,
+            ));
+        }
+        if let Some(top) = candidates.iter().map(|x| x.1).max_by(|a, b| a.total_cmp(b)) {
+            // Сначала находим максимум, затем выбираем ближайший к 1,0 среди практически равных.
+            // Так порядок перебора не смещает темп к нижнему краю диапазона.
+            let best = candidates
+                .into_iter()
+                .filter(|x| x.1 >= top - 0.001)
+                .map(|x| x.0)
+                .min_by(|a, b| (a.rate - 1.0).abs().total_cmp(&(b.rate - 1.0).abs()));
+            if let Some(best) = best {
+                out.push(best);
+            }
+        }
+    }
+    out.sort_by(|a, b| b.score.total_cmp(&a.score));
+    out
+}
+
 /// Нормированная взаимная корреляция записи с треком для каждого сдвига в [lo, hi]
 /// по измерениям отпечатка `dims` (хрома — `NF..NB`, весь отпечаток — `0..NB`).
-fn ncc_scores(q: &Frames, r: &Frames, lo: isize, hi: isize, dims: std::ops::Range<usize>) -> Option<(isize, Vec<f32>)> {
+fn ncc_scores(
+    q: &Frames,
+    r: &Frames,
+    lo: isize,
+    hi: isize,
+    dims: std::ops::Range<usize>,
+) -> Option<(isize, Vec<f32>)> {
     let n = q.len();
     if n < 50 || r.len() < n {
         return None;
@@ -189,7 +287,12 @@ fn ncc_scores(q: &Frames, r: &Frames, lo: isize, hi: isize, dims: std::ops::Rang
             f[b] -= m;
         }
     }
-    let qn = qz.iter().flat_map(|f| f[d0..d1].iter()).map(|x| x * x).sum::<f32>().sqrt();
+    let qn = qz
+        .iter()
+        .flat_map(|f| f[d0..d1].iter())
+        .map(|x| x * x)
+        .sum::<f32>()
+        .sqrt();
     if qn < 1e-6 {
         return None;
     }
@@ -240,10 +343,22 @@ fn decode_mono(bytes: Vec<u8>) -> Result<(Vec<f32>, u32), String> {
 
     let mss = MediaSourceStream::new(Box::new(std::io::Cursor::new(bytes)), Default::default());
     let mut format = symphonia::default::get_probe()
-        .probe(&Hint::new(), mss, FormatOptions::default(), MetadataOptions::default())
+        .probe(
+            &Hint::new(),
+            mss,
+            FormatOptions::default(),
+            MetadataOptions::default(),
+        )
         .map_err(|e| format!("формат: {e}"))?;
-    let track = format.default_track(TrackType::Audio).ok_or("нет звуковой дорожки")?;
-    let params = track.codec_params.as_ref().and_then(|p| p.audio()).ok_or("нет параметров звука")?.clone();
+    let track = format
+        .default_track(TrackType::Audio)
+        .ok_or("нет звуковой дорожки")?;
+    let params = track
+        .codec_params
+        .as_ref()
+        .and_then(|p| p.audio())
+        .ok_or("нет параметров звука")?
+        .clone();
     let track_id = track.id;
     let mut decoder = symphonia::default::get_codecs()
         .make_audio_decoder(&params, &AudioDecoderOptions::default())
@@ -311,12 +426,24 @@ fn capture(seconds: f64) -> Result<Capture, String> {
     use wasapi::{Direction, SampleType, StreamMode, WaveFormat};
     let _ = wasapi::initialize_mta();
     let en = wasapi::DeviceEnumerator::new().map_err(|e| format!("звук недоступен: {e}"))?;
-    let dev = en.get_default_device(Direction::Render).map_err(|e| format!("нет устройства вывода звука: {e}"))?;
-    let mut client = dev.get_iaudioclient().map_err(|e| format!("захват звука: {e}"))?;
+    let dev = en
+        .get_default_device(Direction::Render)
+        .map_err(|e| format!("нет устройства вывода звука: {e}"))?;
+    let mut client = dev
+        .get_iaudioclient()
+        .map_err(|e| format!("захват звука: {e}"))?;
     let rate = 48000u32;
     let fmt = WaveFormat::new(32, 32, SampleType::Float, rate as usize, 2, None);
     client
-        .initialize_client(&fmt, Direction::Capture, StreamMode::PollingShared { autoconvert: true, buffer_duration_hns: 2_000_000 }, None)
+        .initialize_client(
+            &fmt,
+            Direction::Capture,
+            StreamMode::PollingShared {
+                autoconvert: true,
+                buffer_duration_hns: 2_000_000,
+            },
+            None,
+        )
         .map_err(|e| format!("захват звука: {e}"))?;
     let cap = client.get_audiocaptureclient().map_err(|e| e.to_string())?;
     let need = (seconds * rate as f64) as usize;
@@ -363,9 +490,16 @@ fn capture(seconds: f64) -> Result<Capture, String> {
         Some(v[((v.len() - 1) as f64 * q) as usize])
     };
     // метки QPC точные — берём медиану; иначе нижний процентиль по моментам чтения
-    let start_ms = pick(by_qpc, 0.5).or_else(|| pick(by_read, 0.05)).ok_or("нет звука на устройстве вывода")?;
+    let start_ms = pick(by_qpc, 0.5)
+        .or_else(|| pick(by_read, 0.05))
+        .ok_or("нет звука на устройстве вывода")?;
     let rms = (mono.iter().map(|x| x * x).sum::<f32>() / mono.len() as f32).sqrt();
-    Ok(Capture { mono, rate, start_ms, rms })
+    Ok(Capture {
+        mono,
+        rate,
+        start_ms,
+        rms,
+    })
 }
 
 /// Служебная проверка захвата: устройство, уровень звука и согласие двух способов оценки времени.
@@ -376,14 +510,21 @@ pub fn diag_capture(seconds: f64) -> String {
         .and_then(|d| d.get_friendlyname().ok())
         .unwrap_or_default();
     match capture(seconds) {
-        Ok(c) => format!("устройство «{name}»: rms={:.6} сэмплов={} начало={:.1}", c.rms, c.mono.len(), c.start_ms),
+        Ok(c) => format!(
+            "устройство «{name}»: rms={:.6} сэмплов={} начало={:.1}",
+            c.rms,
+            c.mono.len(),
+            c.start_ms
+        ),
         Err(e) => format!("устройство «{name}»: ошибка: {e}"),
     }
 }
 
 /// Служебно: сохранить звук (сырые f32) в папку из ZG_SYNC_DUMP — для разбора сравнения вне приложения.
 fn dump(name: &str, mono: &[f32], rate: u32) {
-    let Some(dir) = std::env::var_os("ZG_SYNC_DUMP") else { return };
+    let Some(dir) = std::env::var_os("ZG_SYNC_DUMP") else {
+        return;
+    };
     let dir = std::path::PathBuf::from(dir);
     let _ = std::fs::create_dir_all(&dir);
     let bytes: Vec<u8> = mono.iter().flat_map(|x| x.to_le_bytes()).collect();
@@ -394,35 +535,63 @@ fn read_f32(path: &std::path::Path) -> Option<(Vec<f32>, u32)> {
     let name = path.file_stem()?.to_str()?;
     let rate: u32 = name.rsplit('-').next()?.parse().ok()?;
     let b = std::fs::read(path).ok()?;
-    Some((b.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect(), rate))
+    Some((
+        b.chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect(),
+        rate,
+    ))
 }
 
 /// Служебно: профиль совпадения записей из папки с опорным треком для разных вариантов отпечатка.
 pub fn diag_match(dir: &std::path::Path) -> String {
     let mut out = String::new();
-    let Ok(rd) = std::fs::read_dir(dir) else { return "нет папки".into() };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return "нет папки".into();
+    };
     let files: Vec<_> = rd.flatten().map(|e| e.path()).collect();
-    let Some((rmono, rrate)) = files.iter().find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("ref-"))).and_then(|p| read_f32(p)) else {
+    let Some((rmono, rrate)) = files
+        .iter()
+        .find(|p| {
+            p.file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with("ref-"))
+        })
+        .and_then(|p| read_f32(p))
+    else {
         return "нет ref".into();
     };
     let rfull = features(&rmono, rrate);
-    let mut caps: Vec<_> = files.iter().filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("cap-"))).collect();
+    let mut caps: Vec<_> = files
+        .iter()
+        .filter(|p| {
+            p.file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with("cap-"))
+        })
+        .collect();
     caps.sort();
     let mask = |f: &Frames, keep: &dyn Fn(usize) -> bool| -> Frames {
-        f.iter().map(|x| {
-            let mut y = *x;
-            for b in 0..NB {
-                if !keep(b) {
-                    y[b] = 0.0;
+        f.iter()
+            .map(|x| {
+                let mut y = *x;
+                for b in 0..NB {
+                    if !keep(b) {
+                        y[b] = 0.0;
+                    }
                 }
-            }
-            y
-        }).collect()
+                y
+            })
+            .collect()
     };
     for c in caps {
-        let Some((cm, cr)) = read_f32(c) else { continue };
+        let Some((cm, cr)) = read_f32(c) else {
+            continue;
+        };
         let rms = (cm.iter().map(|x| x * x).sum::<f32>() / cm.len().max(1) as f32).sqrt();
-        out.push_str(&format!("\n{} rms={rms:.5} {:.1}s", c.file_name().unwrap().to_string_lossy(), cm.len() as f32 / cr as f32));
+        out.push_str(&format!(
+            "\n{} rms={rms:.5} {:.1}s",
+            c.file_name().unwrap().to_string_lossy(),
+            cm.len() as f32 / cr as f32
+        ));
         // громкие записи (звук клипа) — проверка гипотезы о другой скорости воспроизведения
         if rms > 0.02 {
             let mut line = String::from("\n   скорость:");
@@ -448,9 +617,16 @@ pub fn diag_match(dir: &std::path::Path) -> String {
         }
         let q = features(&cm, cr);
         if let Some((lag, sc, sec)) = best_match(&q, &rfull, 0, isize::MAX) {
-            out.push_str(&format!("\n   итог (2 этапа): {:.3}с уверенность {sc:.2} против {sec:.2}", lag * HOP));
+            out.push_str(&format!(
+                "\n   итог (2 этапа): {:.3}с уверенность {sc:.2} против {sec:.2}",
+                lag * HOP
+            ));
         }
-        let variants: [(&str, &dyn Fn(usize) -> bool); 3] = [("все", &|_| true), ("атаки", &|b| b < NF), ("хрома", &|b| b >= NF)];
+        let variants: [(&str, &dyn Fn(usize) -> bool); 3] = [
+            ("все", &|_| true),
+            ("атаки", &|b| b < NF),
+            ("хрома", &|b| b >= NF),
+        ];
         for (name, keep) in variants {
             let (qq, rr) = (mask(&q, keep), mask(&rfull, keep));
             if let Some((lo, s)) = ncc_scores(&qq, &rr, 0, isize::MAX, 0..NB) {
@@ -465,7 +641,10 @@ pub fn diag_match(dir: &std::path::Path) -> String {
                         break;
                     }
                 }
-                let txt: Vec<String> = peaks.iter().map(|i| format!("{:.2}с:{:.2}", (lo + *i as isize) as f64 * HOP, s[*i])).collect();
+                let txt: Vec<String> = peaks
+                    .iter()
+                    .map(|i| format!("{:.2}с:{:.2}", (lo + *i as isize) as f64 * HOP, s[*i]))
+                    .collect();
                 out.push_str(&format!("\n   {name}: {}", txt.join("  ")));
             }
         }
@@ -489,8 +668,16 @@ pub async fn output_device() -> String {
 
 impl Sync {
     pub fn new() -> Self {
-        let http = reqwest::Client::builder().user_agent(crate::zvuk::user_agent()).connect_timeout(Duration::from_secs(15)).timeout(Duration::from_secs(90)).build().expect("http");
-        Self { http, refs: Mutex::new(HashMap::new()) }
+        let http = reqwest::Client::builder()
+            .user_agent(crate::zvuk::user_agent())
+            .connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(90))
+            .build()
+            .expect("http");
+        Self {
+            http,
+            refs: Mutex::new(HashMap::new()),
+        }
     }
 
     /// Скачивает и разбирает трек (лёгкий поток 128 кбит/с — для сравнения его хватает).
@@ -499,27 +686,45 @@ impl Sync {
             return Ok(json!({ "duration": r.duration }));
         }
         let st = client.get_stream(track_id, "mid").await?;
-        let url = st.get("url").and_then(Value::as_str).ok_or_else(|| ApiError::new("NO_STREAM", "нет потока"))?.to_string();
+        let url = st
+            .get("url")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ApiError::new("NO_STREAM", "нет потока"))?
+            .to_string();
         let bytes = self
             .http
             .get(&url)
             .send()
             .await
             .and_then(|r| r.error_for_status())
-            .map_err(|e| ApiError::new("NETWORK", format!("не удалось скачать трек: {}", crate::zvuk::short_err(&e))))?
+            .map_err(|e| {
+                ApiError::new(
+                    "NETWORK",
+                    format!("не удалось скачать трек: {}", crate::zvuk::short_err(&e)),
+                )
+            })?
             .bytes()
             .await
-            .map_err(|e| ApiError::new("NETWORK", format!("не удалось скачать трек: {}", crate::zvuk::short_err(&e))))?
+            .map_err(|e| {
+                ApiError::new(
+                    "NETWORK",
+                    format!("не удалось скачать трек: {}", crate::zvuk::short_err(&e)),
+                )
+            })?
             .to_vec();
-        let reference = tauri::async_runtime::spawn_blocking(move || -> Result<Reference, String> {
-            let (mono, rate) = decode_mono(bytes)?;
-            dump("ref", &mono, rate);
-            let duration = mono.len() as f64 / rate as f64;
-            Ok(Reference { frames: features(&mono, rate), duration })
-        })
-        .await
-        .map_err(|e| ApiError::new("SYNC", e.to_string()))?
-        .map_err(|e| ApiError::new("DECODE", format!("не удалось разобрать трек: {e}")))?;
+        let reference =
+            tauri::async_runtime::spawn_blocking(move || -> Result<Reference, String> {
+                let (mono, rate) = decode_mono(bytes)?;
+                dump("ref", &mono, rate);
+                let duration = mono.len() as f64 / rate as f64;
+                Ok(Reference {
+                    frames: features(&mono, rate),
+                    duration,
+                })
+            })
+            .await
+            .map_err(|e| ApiError::new("SYNC", e.to_string()))?
+            .map_err(|e| ApiError::new("DECODE", format!("не удалось разобрать трек: {e}")))?;
         let duration = reference.duration;
         let mut refs = self.refs.lock().unwrap();
         if refs.len() > 4 {
@@ -531,7 +736,13 @@ impl Sync {
 
     /// Записывает звук приложения и находит, какое место трека в нём звучит.
     /// lo/hi — где искать (секунды трека). Возвращает позицию первого записанного сэмпла.
-    pub async fn measure(&self, track_id: &str, seconds: f64, lo: f64, hi: f64) -> ApiResult<Value> {
+    pub async fn measure(
+        &self,
+        track_id: &str,
+        seconds: f64,
+        lo: f64,
+        hi: f64,
+    ) -> ApiResult<Value> {
         let reference = self
             .refs
             .lock()
@@ -549,24 +760,108 @@ impl Sync {
                 ));
             }
             dump(&format!("cap-{}", c.start_ms as u64), &c.mono, c.rate);
+            let analysis = Instant::now();
             let q = features(&c.mono, c.rate);
             let (lo_f, hi_f) = ((lo / HOP).floor() as isize, (hi / HOP).ceil() as isize);
-            // несколько мест-кандидатов: при повторах в песне решает сверка нескольких замеров
-            let c6 = matches(&q, &reference.frames, lo_f, hi_f, 6);
-            let (lag, score) = *c6.first().ok_or_else(|| ApiError::new("NOMATCH", "не удалось сравнить звук"))?;
-            let second = c6.get(1).map(|x| x.1).unwrap_or(0.0).max(0.0);
-            let cands: Vec<Value> = c6.iter().map(|(l, s)| json!({ "pos": l * HOP, "score": s })).collect();
+            // Несколько мест-кандидатов + локальное уточнение темпа и атак.
+            let found = refine_matches(&q, &reference.frames, lo_f, hi_f, 6);
+            let best = found.first().ok_or_else(|| ApiError::new("NOMATCH", "не удалось сравнить звук"))?;
+            let second = found.get(1).map(|x| x.score).unwrap_or(0.0).max(0.0);
+            let cands: Vec<Value> = found.iter().map(|m| json!({ "pos": m.lag * HOP, "score": m.score, "fine": m.fine, "rate": m.rate })).collect();
             Ok(json!({
-                "pos": lag * HOP,
-                "score": score,
+                "pos": best.lag * HOP,
+                "score": best.score,
+                "fine": best.fine,
+                "rate": best.rate,
                 "second": second,
                 "cands": cands,
                 "startMs": c.start_ms,
+                "endMs": c.start_ms + c.mono.len() as f64 / c.rate as f64 * 1000.0,
                 "rms": c.rms,
+                "analysisMs": analysis.elapsed().as_secs_f64() * 1000.0,
                 "duration": reference.duration,
             }))
         })
         .await
         .map_err(|e| ApiError::new("SYNC", e.to_string()))?
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn musical_frames(n: usize, other: bool) -> Frames {
+        (0..n)
+            .map(|i| {
+                let mut f = [0f32; NB];
+                let bar = i / 40;
+                let beat = i % 20;
+                let root = if other {
+                    (bar * 7 + 2) % NC
+                } else {
+                    (bar * 5 + 1) % NC
+                };
+                for c in 0..NC {
+                    let d = (c + NC - root) % NC;
+                    let distance = d.min(NC - d) as f32;
+                    f[NF + c] = 1.0 / (1.0 + distance * distance) + if other { 0.013 } else { 0.0 };
+                }
+                for b in 0..NF {
+                    if beat < 3 {
+                        f[b] = 0.3
+                            + ((bar * 13 + b * 7 + if other { 5 } else { 0 }) % 17) as f32 / 11.0;
+                    }
+                    // Неповторяющаяся мелодическая огибающая отличает разные такты.
+                    f[NF + (b * 5 + bar) % NC] += ((i * (b + 3) + bar * 11) % 23) as f32 / 90.0;
+                }
+                f
+            })
+            .collect()
+    }
+
+    #[test]
+    fn finds_known_shift_and_multiple_chorus_candidates() {
+        let mut reference = musical_frames(1600, false);
+        let chorus = reference[400..600].to_vec();
+        reference[1000..1200].copy_from_slice(&chorus);
+        let query = reference[330..730].to_vec();
+        let found = refine_matches(&query, &reference, 0, isize::MAX, 6);
+        assert!((found[0].lag * HOP - 3.3).abs() < 0.03, "{found:?}");
+        assert!(found[0].score > 0.7, "{found:?}");
+        let repeated = refine_matches(
+            &reference[1000..1400].to_vec(),
+            &reference,
+            0,
+            isize::MAX,
+            6,
+        );
+        assert!(
+            repeated.iter().any(|m| (m.lag * HOP - 10.0).abs() < 0.03),
+            "{repeated:?}"
+        );
+        assert!(
+            repeated.iter().any(|m| (m.lag * HOP - 4.0).abs() < 0.03),
+            "{repeated:?}"
+        );
+    }
+
+    #[test]
+    fn estimates_small_tempo_difference() {
+        let reference = musical_frames(1600, false);
+        // Синтезируем клип, играющий в 1,01 раза быстрее опорного трека.
+        let query = warp_frames(&reference[200..750].to_vec(), 1.0 / 1.01);
+        let found = refine_matches(&query, &reference, 0, isize::MAX, 6);
+        assert!((found[0].rate - 1.01).abs() < 0.0001, "{found:?}");
+        assert!((found[0].lag * HOP - 2.0).abs() < 0.04, "{found:?}");
+        assert!(found[0].score > 0.65, "{found:?}");
+    }
+
+    #[test]
+    fn rejects_a_different_signal() {
+        let reference = musical_frames(1600, false);
+        let query = musical_frames(450, true);
+        let found = refine_matches(&query, &reference, 0, isize::MAX, 6);
+        assert!(found.first().is_none_or(|m| m.score < 0.55), "{found:?}");
     }
 }

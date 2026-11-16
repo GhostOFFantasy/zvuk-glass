@@ -8,7 +8,10 @@ use crate::zvuk::{ApiError, ApiResult, ZvukClient};
 pub struct Sync;
 
 fn unavailable() -> ApiError {
-    ApiError::new("UNSUPPORTED", "Автосинхронизация по звуку доступна только в версии для Windows")
+    ApiError::new(
+        "UNSUPPORTED",
+        "Автосинхронизация по звуку доступна только в версии для Windows",
+    )
 }
 
 pub async fn output_device() -> String {
@@ -24,7 +27,13 @@ impl Sync {
         Err(unavailable())
     }
 
-    pub async fn measure(&self, _track_id: &str, _seconds: f64, _lo: f64, _hi: f64) -> ApiResult<Value> {
+    pub async fn measure(
+        &self,
+        _track_id: &str,
+        _seconds: f64,
+        _lo: f64,
+        _hi: f64,
+    ) -> ApiResult<Value> {
         Err(unavailable())
     }
 }
