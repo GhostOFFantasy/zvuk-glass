@@ -15,14 +15,31 @@ pub fn installed_copy() -> Option<(std::path::PathBuf, String)> {
     let read = |name: PCWSTR| -> Option<String> {
         let mut buf = vec![0u16; 1024];
         let mut size = (buf.len() * 2) as u32;
-        let r = unsafe { RegGetValueW(HKEY_CURRENT_USER, key, name, RRF_RT_REG_SZ, None, Some(buf.as_mut_ptr().cast()), Some(&mut size)) };
+        let r = unsafe {
+            RegGetValueW(
+                HKEY_CURRENT_USER,
+                key,
+                name,
+                RRF_RT_REG_SZ,
+                None,
+                Some(buf.as_mut_ptr().cast()),
+                Some(&mut size),
+            )
+        };
         if r != ERROR_SUCCESS {
             return None;
         }
         let n = (size as usize / 2).saturating_sub(1).min(buf.len());
-        Some(String::from_utf16_lossy(&buf[..n]).trim_end_matches('\0').to_string())
+        Some(
+            String::from_utf16_lossy(&buf[..n])
+                .trim_end_matches('\0')
+                .to_string(),
+        )
     };
-    let dir = read(w!("InstallLocation"))?.trim().trim_matches('"').to_string();
+    let dir = read(w!("InstallLocation"))?
+        .trim()
+        .trim_matches('"')
+        .to_string();
     let ver = read(w!("DisplayVersion"))?.trim().to_string();
     (!dir.is_empty() && !ver.is_empty()).then(|| (std::path::PathBuf::from(dir), ver))
 }
@@ -38,18 +55,23 @@ pub fn webview_version() -> Option<String> {
     }
     Some(webview2_com::take_pwstr(p))
 }
-use webview2_com::Microsoft::Web::WebView2::Win32::{COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_JPEG, COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG};
+use webview2_com::Microsoft::Web::WebView2::Win32::{
+    COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_JPEG, COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
+};
 use windows::core::BOOL;
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::Graphics::Gdi::{CreateBitmap, DeleteObject, HGDIOBJ};
-use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER, STATFLAG_NONAME, STREAM_SEEK_SET};
+use windows::Win32::System::Com::{
+    CoCreateInstance, CLSCTX_INPROC_SERVER, STATFLAG_NONAME, STREAM_SEEK_SET,
+};
 use windows::Win32::UI::Shell::{
-    DefSubclassProc, ITaskbarList3, SHCreateMemStream, SetWindowSubclass, TaskbarList, THB_FLAGS, THB_ICON, THB_TOOLTIP, THBF_ENABLED, THBN_CLICKED,
-    THUMBBUTTON,
+    DefSubclassProc, ITaskbarList3, SHCreateMemStream, SetWindowSubclass, TaskbarList,
+    THBF_ENABLED, THBN_CLICKED, THB_FLAGS, THB_ICON, THB_TOOLTIP, THUMBBUTTON,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateIconIndirect, DestroyIcon, GetWindowLongPtrW, SetLayeredWindowAttributes, SetWindowLongPtrW, GWL_EXSTYLE, HICON, ICONINFO, LWA_ALPHA,
-    WM_COMMAND, WS_EX_LAYERED, WS_EX_TOOLWINDOW,
+    CreateIconIndirect, DestroyIcon, GetWindowLongPtrW, SetLayeredWindowAttributes,
+    SetWindowLongPtrW, GWL_EXSTYLE, HICON, ICONINFO, LWA_ALPHA, WM_COMMAND, WS_EX_LAYERED,
+    WS_EX_TOOLWINDOW,
 };
 
 static APP: OnceLock<AppHandle> = OnceLock::new();
@@ -84,7 +106,13 @@ fn hicon_from_data_url(url: &str) -> Option<HICON> {
         let color = CreateBitmap(w, h, 1, 32, Some(bgra.as_ptr() as *const _));
         let mask_bits = vec![0u8; ((w + 15) / 16 * 2 * h) as usize];
         let mask = CreateBitmap(w, h, 1, 1, Some(mask_bits.as_ptr() as *const _));
-        let info = ICONINFO { fIcon: BOOL(1), xHotspot: 0, yHotspot: 0, hbmMask: mask, hbmColor: color };
+        let info = ICONINFO {
+            fIcon: BOOL(1),
+            xHotspot: 0,
+            yHotspot: 0,
+            hbmMask: mask,
+            hbmColor: color,
+        };
         let icon = CreateIconIndirect(&info).ok();
         let _ = DeleteObject(HGDIOBJ(color.0));
         let _ = DeleteObject(HGDIOBJ(mask.0));
@@ -93,9 +121,23 @@ fn hicon_from_data_url(url: &str) -> Option<HICON> {
 }
 
 pub fn set_thumb_icons(win: &WebviewWindow, icons: &serde_json::Value) {
-    let get = |k: &str| icons.get(k).and_then(|v| v.as_str()).and_then(hicon_from_data_url);
-    let (Some(prev), Some(play), Some(pause), Some(next)) = (get("prev"), get("play"), get("pause"), get("next")) else { return };
-    if let Some(old) = THUMB.lock().unwrap().replace(Icons { prev, play, pause, next }) {
+    let get = |k: &str| {
+        icons
+            .get(k)
+            .and_then(|v| v.as_str())
+            .and_then(hicon_from_data_url)
+    };
+    let (Some(prev), Some(play), Some(pause), Some(next)) =
+        (get("prev"), get("play"), get("pause"), get("next"))
+    else {
+        return;
+    };
+    if let Some(old) = THUMB.lock().unwrap().replace(Icons {
+        prev,
+        play,
+        pause,
+        next,
+    }) {
         unsafe {
             let _ = DestroyIcon(old.prev);
             let _ = DestroyIcon(old.play);
@@ -131,11 +173,23 @@ pub fn update_thumbar(win: &WebviewWindow, playing: bool) {
         };
         let buttons = [
             mk(BTN_PREV, ic.prev, "Предыдущий"),
-            mk(BTN_TOGGLE, if playing { ic.pause } else { ic.play }, if playing { "Пауза" } else { "Играть" }),
+            mk(
+                BTN_TOGGLE,
+                if playing { ic.pause } else { ic.play },
+                if playing {
+                    "Пауза"
+                } else {
+                    "Играть"
+                },
+            ),
             mk(BTN_NEXT, ic.next, "Следующий"),
         ];
         unsafe {
-            let Ok(tb) = CoCreateInstance::<_, ITaskbarList3>(&TaskbarList, None, CLSCTX_INPROC_SERVER) else { return };
+            let Ok(tb) =
+                CoCreateInstance::<_, ITaskbarList3>(&TaskbarList, None, CLSCTX_INPROC_SERVER)
+            else {
+                return;
+            };
             if tb.HrInit().is_err() {
                 return;
             }
@@ -151,7 +205,14 @@ pub fn update_thumbar(win: &WebviewWindow, playing: bool) {
     });
 }
 
-unsafe extern "system" fn subclass_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM, _id: usize, _data: usize) -> LRESULT {
+unsafe extern "system" fn subclass_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    _id: usize,
+    _data: usize,
+) -> LRESULT {
     if msg == WM_COMMAND && ((wparam.0 >> 16) & 0xffff) as u32 == THBN_CLICKED {
         let cmd = match (wparam.0 & 0xffff) as u32 {
             BTN_PREV => Some("prev"),
@@ -183,15 +244,25 @@ pub fn make_invisible(win: &WebviewWindow) {
     if let Ok(hwnd) = win.hwnd() {
         unsafe {
             let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED.0 as isize | WS_EX_TOOLWINDOW.0 as isize);
+            SetWindowLongPtrW(
+                hwnd,
+                GWL_EXSTYLE,
+                ex | WS_EX_LAYERED.0 as isize | WS_EX_TOOLWINDOW.0 as isize,
+            );
             let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA);
         }
     }
 }
 
 /// Снимок содержимого WebView в PNG; по готовности вызывает done(путь сохранён или ошибка).
-pub fn capture_png(win: &WebviewWindow, out: std::path::PathBuf, done: impl FnOnce(Result<(), String>) + Send + 'static) {
-    let done = std::sync::Arc::new(Mutex::new(Some(Box::new(done) as Box<dyn FnOnce(Result<(), String>) + Send>)));
+pub fn capture_png(
+    win: &WebviewWindow,
+    out: std::path::PathBuf,
+    done: impl FnOnce(Result<(), String>) + Send + 'static,
+) {
+    let done = std::sync::Arc::new(Mutex::new(Some(
+        Box::new(done) as Box<dyn FnOnce(Result<(), String>) + Send>
+    )));
     let d2 = done.clone();
     let r = win.with_webview(move |wv| unsafe {
         let finish = move |r: Result<(), String>| {
@@ -203,7 +274,9 @@ pub fn capture_png(win: &WebviewWindow, out: std::path::PathBuf, done: impl FnOn
             Ok(c) => c,
             Err(e) => return finish(Err(e.to_string())),
         };
-        let Some(stream) = SHCreateMemStream(None) else { return finish(Err("stream".into())) };
+        let Some(stream) = SHCreateMemStream(None) else {
+            return finish(Err("stream".into()));
+        };
         let s2 = stream.clone();
         let handler = CapturePreviewCompletedHandler::create(Box::new(move |res| {
             let r = res
@@ -213,7 +286,11 @@ pub fn capture_png(win: &WebviewWindow, out: std::path::PathBuf, done: impl FnOn
             finish(r);
             Ok(())
         }));
-        if let Err(e) = core.CapturePreview(COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, &stream, &handler) {
+        if let Err(e) = core.CapturePreview(
+            COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
+            &stream,
+            &handler,
+        ) {
             if let Some(f) = done.lock().unwrap().take() {
                 f(Err(e.to_string()))
             }
@@ -230,7 +307,11 @@ unsafe fn read_stream(s: &windows::Win32::System::Com::IStream) -> Option<Vec<u8
     s.Seek(0, STREAM_SEEK_SET, None).ok()?;
     let mut buf = vec![0u8; stat.cbSize as usize];
     let mut read = 0u32;
-    let _ = s.Read(buf.as_mut_ptr() as *mut _, buf.len() as u32, Some(&mut read));
+    let _ = s.Read(
+        buf.as_mut_ptr() as *mut _,
+        buf.len() as u32,
+        Some(&mut read),
+    );
     buf.truncate(read as usize);
     Some(buf)
 }
@@ -248,15 +329,26 @@ pub fn capture_jpeg(win: &WebviewWindow) -> tokio::sync::oneshot::Receiver<Optio
     };
     let tx2 = tx.clone();
     let r = win.with_webview(move |wv| unsafe {
-        let Ok(core) = wv.controller().CoreWebView2() else { return send(&tx2, None) };
-        let Some(stream) = SHCreateMemStream(None) else { return send(&tx2, None) };
+        let Ok(core) = wv.controller().CoreWebView2() else {
+            return send(&tx2, None);
+        };
+        let Some(stream) = SHCreateMemStream(None) else {
+            return send(&tx2, None);
+        };
         let s2 = stream.clone();
         let tx3 = tx2.clone();
         let handler = CapturePreviewCompletedHandler::create(Box::new(move |res| {
             send(&tx3, res.ok().and_then(|_| read_stream(&s2)));
             Ok(())
         }));
-        if core.CapturePreview(COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_JPEG, &stream, &handler).is_err() {
+        if core
+            .CapturePreview(
+                COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_JPEG,
+                &stream,
+                &handler,
+            )
+            .is_err()
+        {
             send(&tx2, None);
         }
     });
@@ -269,16 +361,20 @@ pub fn capture_jpeg(win: &WebviewWindow) -> tokio::sync::oneshot::Receiver<Optio
 /// Уменьшенная серая копия картинки (средствами Windows, WIC): ширина не больше `max_w`, байт на точку.
 pub fn gray_thumb(img: &[u8], max_w: u32) -> Option<(u32, u32, Vec<u8>)> {
     use windows::Win32::Graphics::Imaging::{
-        CLSID_WICImagingFactory, GUID_WICPixelFormat8bppGray, IWICImagingFactory, IWICPalette, WICBitmapDitherTypeNone, WICBitmapInterpolationModeFant,
-        WICBitmapPaletteTypeCustom, WICDecodeMetadataCacheOnDemand,
+        CLSID_WICImagingFactory, GUID_WICPixelFormat8bppGray, IWICImagingFactory, IWICPalette,
+        WICBitmapDitherTypeNone, WICBitmapInterpolationModeFant, WICBitmapPaletteTypeCustom,
+        WICDecodeMetadataCacheOnDemand,
     };
     use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-        let f: IWICImagingFactory = CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER).ok()?;
+        let f: IWICImagingFactory =
+            CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER).ok()?;
         let st = f.CreateStream().ok()?;
         st.InitializeFromMemory(img).ok()?;
-        let dec = f.CreateDecoderFromStream(&st, std::ptr::null(), WICDecodeMetadataCacheOnDemand).ok()?;
+        let dec = f
+            .CreateDecoderFromStream(&st, std::ptr::null(), WICDecodeMetadataCacheOnDemand)
+            .ok()?;
         let frame = dec.GetFrame(0).ok()?;
         let (mut w, mut h) = (0u32, 0u32);
         frame.GetSize(&mut w, &mut h).ok()?;
@@ -288,9 +384,18 @@ pub fn gray_thumb(img: &[u8], max_w: u32) -> Option<(u32, u32, Vec<u8>)> {
         let tw = max_w.min(w).max(1);
         let th = ((h as u64 * tw as u64) / w as u64).max(1) as u32;
         let sc = f.CreateBitmapScaler().ok()?;
-        sc.Initialize(&frame, tw, th, WICBitmapInterpolationModeFant).ok()?;
+        sc.Initialize(&frame, tw, th, WICBitmapInterpolationModeFant)
+            .ok()?;
         let cv = f.CreateFormatConverter().ok()?;
-        cv.Initialize(&sc, &GUID_WICPixelFormat8bppGray, WICBitmapDitherTypeNone, None::<&IWICPalette>, 0.0, WICBitmapPaletteTypeCustom).ok()?;
+        cv.Initialize(
+            &sc,
+            &GUID_WICPixelFormat8bppGray,
+            WICBitmapDitherTypeNone,
+            None::<&IWICPalette>,
+            0.0,
+            WICBitmapPaletteTypeCustom,
+        )
+        .ok()?;
         let stride = (tw + 3) & !3;
         let mut buf = vec![0u8; (stride * th) as usize];
         cv.CopyPixels(std::ptr::null(), stride, &mut buf).ok()?;
@@ -306,10 +411,14 @@ pub fn gray_thumb(img: &[u8], max_w: u32) -> Option<(u32, u32, Vec<u8>)> {
 /// Вызов метода DevTools-протокола WebView2 (служебные проверки: настоящие движения мыши и т. п.).
 pub fn cdp(win: &WebviewWindow, method: &'static str, params: String) {
     let _ = win.with_webview(move |wv| unsafe {
-        let Ok(core) = wv.controller().CoreWebView2() else { return };
+        let Ok(core) = wv.controller().CoreWebView2() else {
+            return;
+        };
         let m = windows::core::HSTRING::from(method);
         let p = windows::core::HSTRING::from(params);
-        let handler = webview2_com::CallDevToolsProtocolMethodCompletedHandler::create(Box::new(|_res, _json| Ok(())));
+        let handler = webview2_com::CallDevToolsProtocolMethodCompletedHandler::create(Box::new(
+            |_res, _json| Ok(()),
+        ));
         let _ = core.CallDevToolsProtocolMethod(&m, &p, &handler);
     });
 }

@@ -105,6 +105,7 @@
     // служебные проверки (работают только в режиме снимков)
     debug: {
       log: (msg) => invoke('debug_log', { msg: String(msg) }).catch(() => {}),
+      apiStats: () => invoke('debug_api_stats'),
       mouse: (x, y, kind) => invoke('debug_mouse', { x, y, kind: kind || null }).catch(() => {}),
     },
   };

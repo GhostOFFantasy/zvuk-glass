@@ -1,6 +1,9 @@
 //! Zvuk Glass — общий код для Windows и Android. На Android часть возможностей Windows недоступна
 //! (миниатюра в панели задач, снимки окна, автосинхронизация клипа по звуку) — там свои реализации.
-#![cfg_attr(not(windows), allow(unused_imports, dead_code, unused_variables, unused_mut))]
+#![cfg_attr(
+    not(windows),
+    allow(unused_imports, dead_code, unused_variables, unused_mut)
+)]
 
 mod clips;
 #[cfg_attr(windows, path = "crypt_windows.rs")]
@@ -29,7 +32,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, RunEvent, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
+use tauri::{
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, RunEvent, State, WebviewUrl,
+    WebviewWindow, WebviewWindowBuilder, WindowEvent,
+};
 use tokio::sync::watch;
 
 use crate::store::Store;
@@ -45,6 +51,8 @@ struct Args {
     vizstyle: Option<String>,
     login_preview: bool,
     updtest: bool,
+    /// Переносной тест: отдельные данные, свой экземпляр и никакой установки обновлений.
+    portable: bool,
 }
 
 impl Args {
@@ -56,12 +64,18 @@ impl Args {
                 None => (x.clone(), None),
             };
             match k.as_str() {
-                "--screenshot" => a.screenshot = Some(v.map(PathBuf::from).unwrap_or_else(|| PathBuf::from("screenshot.png"))),
+                "--screenshot" => {
+                    a.screenshot = Some(
+                        v.map(PathBuf::from)
+                            .unwrap_or_else(|| PathBuf::from("screenshot.png")),
+                    )
+                }
                 "--route" => a.route = v,
                 "--extra" => a.extra = v,
                 "--vizstyle" => a.vizstyle = v,
                 "--login-preview" => a.login_preview = true,
                 "--updtest" => a.updtest = true,
+                "--portable" => a.portable = true,
                 _ => {}
             }
         }
@@ -107,7 +121,9 @@ async fn init_auth(app: &App) {
         }
         return;
     }
-    let Some(token) = app.store.read_secret("token") else { return };
+    let Some(token) = app.store.read_secret("token") else {
+        return;
+    };
     app.client.set_token(Some(token.clone()));
     match app.client.profile_with(Some(&token)).await {
         Ok(p) if p.is_anonymous => {
@@ -116,8 +132,14 @@ async fn init_auth(app: &App) {
         Ok(p) => *app.profile.lock().unwrap() = Some(p),
         // Нет сети или временная блокировка — работаем с сохранённым токеном, профиль подтянем позже
         Err(_) => {
-            *app.profile.lock().unwrap() =
-                Some(Profile { id: String::new(), name: None, image: None, is_anonymous: false, token: None, offline: true })
+            *app.profile.lock().unwrap() = Some(Profile {
+                id: String::new(),
+                name: None,
+                image: None,
+                is_anonymous: false,
+                token: None,
+                offline: true,
+            })
         }
     }
 }
@@ -144,18 +166,28 @@ async fn auth_state(app: S<'_>) -> Result<Value, ApiError> {
 #[tauri::command]
 async fn auth_token(app: S<'_>, token: String) -> Result<Value, ApiError> {
     let token = token.trim().to_string();
-    let ok = token.len() >= 16 && token.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    let ok = token.len() >= 16
+        && token
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
     if !ok {
         return Err(err("BAD_TOKEN", "Похоже, это не токен Zvuk"));
     }
     let p = app.client.profile_with(Some(&token)).await?;
     if p.is_anonymous {
-        return Err(err("ANON", "Этот токен анонимный — войдите в аккаунт на zvuk.com и скопируйте токен заново"));
+        return Err(err(
+            "ANON",
+            "Этот токен анонимный — войдите в аккаунт на zvuk.com и скопируйте токен заново",
+        ));
     }
     app.client.set_token(Some(token.clone()));
     *app.profile.lock().unwrap() = Some(p);
     if !app.args.demo() {
-        app.store.write_secret("token", Some(&token));
+        if let Err(message) = app.store.write_secret("token", Some(&token)) {
+            app.client.set_token(None);
+            *app.profile.lock().unwrap() = None;
+            return Err(err("SECRET_STORAGE", message));
+        }
     }
     Ok(auth_json(&app))
 }
@@ -164,7 +196,7 @@ async fn auth_token(app: S<'_>, token: String) -> Result<Value, ApiError> {
 fn auth_logout(app: S<'_>) -> Value {
     app.client.set_token(None);
     *app.profile.lock().unwrap() = None;
-    app.store.write_secret("token", None);
+    let _ = app.store.write_secret("token", None);
     auth_json(&app)
 }
 
@@ -207,25 +239,42 @@ fn settings_set(app: S<'_>, patch: Value) -> bool {
 
 // ---------- Свои файлы ----------
 #[tauri::command]
-async fn media_pick(app: S<'_>, window: WebviewWindow, key: String, kind: String) -> Result<Value, ApiError> {
+async fn media_pick(
+    app: S<'_>,
+    window: WebviewWindow,
+    key: String,
+    kind: String,
+) -> Result<Value, ApiError> {
     if !media::MEDIA_KEYS.contains(&key.as_str()) {
         return Err(err("BAD_KEY", "bad key"));
     }
     #[cfg(windows)]
     {
         let video = kind == "video";
-        let mut dlg = rfd::AsyncFileDialog::new().set_title(if video { "Выберите видео" } else { "Выберите изображение" });
+        let mut dlg = rfd::AsyncFileDialog::new().set_title(if video {
+            "Выберите видео"
+        } else {
+            "Выберите изображение"
+        });
         dlg = if video {
             dlg.add_filter("Видео", &["mp4", "webm", "m4v", "mkv", "mov"])
         } else {
-            dlg.add_filter("Изображения", &["jpg", "jpeg", "png", "webp", "gif", "bmp", "avif"])
+            dlg.add_filter(
+                "Изображения",
+                &["jpg", "jpeg", "png", "webp", "gif", "bmp", "avif"],
+            )
         };
         dlg = dlg.set_parent(&window);
-        let Some(file) = dlg.pick_file().await else { return Ok(Value::Null) };
+        let Some(file) = dlg.pick_file().await else {
+            return Ok(Value::Null);
+        };
         media::adopt_media(&app.store, &key, file.path()).map_err(|m| err("MEDIA", m))
     }
     #[cfg(not(windows))]
-    Err(err("UNSUPPORTED", "Свои обои и видео пока доступны только в версии для Windows"))
+    Err(err(
+        "UNSUPPORTED",
+        "Свои обои и видео пока доступны только в версии для Windows",
+    ))
 }
 
 #[tauri::command]
@@ -243,8 +292,15 @@ fn player_state(window: WebviewWindow, st: Value) {
     {
         let playing = st.get("playing").and_then(Value::as_bool).unwrap_or(false);
         winx::update_thumbar(&window, playing);
-        let title = match st.get("title").and_then(Value::as_str).filter(|t| !t.is_empty()) {
-            Some(t) => format!("{t} — {} · Zvuk Glass", st.get("artist").and_then(Value::as_str).unwrap_or("")),
+        let title = match st
+            .get("title")
+            .and_then(Value::as_str)
+            .filter(|t| !t.is_empty())
+        {
+            Some(t) => format!(
+                "{t} — {} · Zvuk Glass",
+                st.get("artist").and_then(Value::as_str).unwrap_or("")
+            ),
             None => "Zvuk Glass".into(),
         };
         let _ = window.set_title(&title);
@@ -309,7 +365,11 @@ fn win_state(window: WebviewWindow) -> Value {
 #[cfg(desktop)]
 #[tauri::command]
 fn set_zoom(window: WebviewWindow, factor: f64) {
-    let f = if factor.is_finite() { factor.clamp(0.75, 1.4) } else { 1.0 };
+    let f = if factor.is_finite() {
+        factor.clamp(0.75, 1.4)
+    } else {
+        1.0
+    };
     let _ = window.set_zoom(f);
 }
 
@@ -317,7 +377,9 @@ fn set_zoom(window: WebviewWindow, factor: f64) {
 #[allow(unused_variables)]
 fn clipboard_write(handle: AppHandle, text: String) -> bool {
     #[cfg(windows)]
-    return arboard::Clipboard::new().and_then(|mut c| c.set_text(text)).is_ok();
+    return arboard::Clipboard::new()
+        .and_then(|mut c| c.set_text(text))
+        .is_ok();
     #[cfg(target_os = "android")]
     {
         use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -333,7 +395,9 @@ fn clipboard_read(app: S<'_>, handle: AppHandle) -> String {
         return String::new();
     }
     #[cfg(windows)]
-    return arboard::Clipboard::new().and_then(|mut c| c.get_text()).unwrap_or_default();
+    return arboard::Clipboard::new()
+        .and_then(|mut c| c.get_text())
+        .unwrap_or_default();
     #[cfg(target_os = "android")]
     {
         use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -380,29 +444,42 @@ fn yt_state(app: S<'_>) -> Value {
 #[tauri::command]
 async fn yt_set_key(app: S<'_>, key: String) -> Result<bool, ApiError> {
     let key = key.trim().to_string();
-    if key.len() < 20 || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+    if key.len() < 20
+        || !key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
         return Err(err("BAD_KEY", "Похоже, это не ключ API"));
     }
     app.clips.check_key(&key).await?;
-    app.store.write_secret("ytKey", Some(&key));
+    app.store
+        .write_secret("ytKey", Some(&key))
+        .map_err(|message| err("SECRET_STORAGE", message))?;
     Ok(true)
 }
 
 #[tauri::command]
 fn yt_clear_key(app: S<'_>) -> bool {
-    app.store.write_secret("ytKey", None);
+    let _ = app.store.write_secret("ytKey", None);
     true
 }
 
 /// track: { id, title, artists: [названия], duration }. force — искать заново.
 #[tauri::command]
-async fn yt_find(app: S<'_>, track: Value, force: Option<bool>, cached: Option<bool>) -> Result<Value, ApiError> {
+async fn yt_find(
+    app: S<'_>,
+    track: Value,
+    force: Option<bool>,
+    cached: Option<bool>,
+) -> Result<Value, ApiError> {
     let id = zvuk::id_str(&track["id"]);
     let prev = app.clips.get(&id);
     // клип не нашёлся прежним подбором — один раз ищем заново улучшенным
-    let stale = prev
-        .as_ref()
-        .is_some_and(|p| p["pick"].is_null() && p["manual"].is_null() && p.get("v").and_then(Value::as_i64) != Some(clips::SEARCH_V));
+    let stale = prev.as_ref().is_some_and(|p| {
+        p["pick"].is_null()
+            && p["manual"].is_null()
+            && p.get("v").and_then(Value::as_i64) != Some(clips::SEARCH_V)
+    });
     if let Some(p) = &prev {
         if !force.unwrap_or(false) && !stale {
             return Ok(p.clone());
@@ -427,6 +504,7 @@ async fn yt_find(app: S<'_>, track: Value, force: Option<bool>, cached: Option<b
         "cands": cands, "pick": pick,
         "manual": prev.get("manual").cloned().unwrap_or(Value::Null),
         "offset": prev.get("offset").cloned().unwrap_or(json!(0)),
+        "auto": prev.get("auto").cloned().unwrap_or(Value::Null),
         "at": clips::now_ms(),
         "v": clips::SEARCH_V,
     });
@@ -436,7 +514,9 @@ async fn yt_find(app: S<'_>, track: Value, force: Option<bool>, cached: Option<b
 #[tauri::command]
 fn yt_update(app: S<'_>, track_id: Value, patch: Value) -> Value {
     let id = zvuk::id_str(&track_id);
-    let mut e = app.clips.get(&id).unwrap_or_else(|| json!({ "cands": [], "pick": null, "manual": null, "offset": 0, "at": clips::now_ms() }));
+    let mut e = app.clips.get(&id).unwrap_or_else(
+        || json!({ "cands": [], "pick": null, "manual": null, "offset": 0, "at": clips::now_ms() }),
+    );
     for k in ["pick", "manual", "offset", "auto"] {
         if let Some(v) = patch.get(k) {
             e[k] = v.clone();
@@ -449,19 +529,35 @@ fn yt_update(app: S<'_>, track_id: Value, patch: Value) -> Value {
 /// Текст песни из открытой базы LRCLIB, если в Zvuk его нет или он без времени строк.
 /// В LRCLIB уходят только исполнитель, название и длительность трека.
 #[tauri::command]
-async fn lyrics_external(app: S<'_>, id: Value, artist: String, title: String, duration: f64) -> Result<Value, ApiError> {
+async fn lyrics_external(
+    app: S<'_>,
+    id: Value,
+    artist: String,
+    title: String,
+    duration: f64,
+) -> Result<Value, ApiError> {
     let artist: String = artist.trim().chars().take(200).collect();
     let title: String = title.trim().chars().take(300).collect();
     if artist.is_empty() || title.is_empty() {
         return Ok(Value::Null);
     }
-    Ok(app.lyrics.find(&zvuk::id_str(&id), &artist, &title, duration.clamp(0.0, 7200.0)).await)
+    Ok(app
+        .lyrics
+        .find(
+            &zvuk::id_str(&id),
+            &artist,
+            &title,
+            duration.clamp(0.0, 7200.0),
+        )
+        .await)
 }
 
 // ---------- Автосинхронизация клипа ----------
 #[tauri::command]
 async fn sync_prepare(app: S<'_>, track_id: Value) -> Result<Value, ApiError> {
-    app.sync.prepare(&app.client, &zvuk::id_str(&track_id)).await
+    app.sync
+        .prepare(&app.client, &zvuk::id_str(&track_id))
+        .await
 }
 
 /// Устройство вывода звука сейчас (для запомненной задержки тракта).
@@ -471,8 +567,16 @@ async fn sync_device() -> String {
 }
 
 #[tauri::command]
-async fn sync_measure(app: S<'_>, track_id: Value, seconds: f64, lo: f64, hi: f64) -> Result<Value, ApiError> {
-    app.sync.measure(&zvuk::id_str(&track_id), seconds, lo, hi).await
+async fn sync_measure(
+    app: S<'_>,
+    track_id: Value,
+    seconds: f64,
+    lo: f64,
+    hi: f64,
+) -> Result<Value, ApiError> {
+    app.sync
+        .measure(&zvuk::id_str(&track_id), seconds, lo, hi)
+        .await
 }
 
 #[tauri::command]
@@ -489,11 +593,20 @@ fn yt_parse(text: String) -> Option<String> {
 // ---------- Обновления ----------
 #[tauri::command]
 fn update_state(app: S<'_>, handle: AppHandle) -> Value {
-    app.updates.state(&handle)
+    let mut state = app.updates.state(&handle);
+    if app.args.portable {
+        state["state"] = json!("portable");
+        state["portable"] = json!(true);
+    }
+    state
 }
 
 #[tauri::command]
 async fn update_check(app: S<'_>, handle: AppHandle) -> Result<Value, ApiError> {
+    // Даже ручная проверка переносного теста не обращается к релизам и ничего не скачивает.
+    if app.args.portable {
+        return Ok(update_state(app, handle));
+    }
     Ok(app.updates.check(&handle).await)
 }
 
@@ -517,7 +630,9 @@ fn update_install(app: S<'_>, handle: AppHandle) -> bool {
     // Android: системное окно установки APK (подтверждает пользователь)
     #[cfg(target_os = "android")]
     {
-        let Some(path) = app.updates.ready_path() else { return false };
+        let Some(path) = app.updates.ready_path() else {
+            return false;
+        };
         std::thread::spawn(move || {
             mobile::install_apk(&handle, &path);
         });
@@ -527,8 +642,19 @@ fn update_install(app: S<'_>, handle: AppHandle) -> bool {
 
 // ---------- Служебный режим снимков ----------
 #[tauri::command]
+fn debug_api_stats(app: S<'_>) -> Value {
+    if app.args.screenshot.is_some() {
+        json!({ "httpSent": crate::zvuk::http_sent() })
+    } else {
+        json!({})
+    }
+}
+
+#[tauri::command]
 fn screenshot_ready(app: S<'_>, window: WebviewWindow, delay: Option<u64>) {
-    let Some(out) = app.args.screenshot.clone() else { return };
+    let Some(out) = app.args.screenshot.clone() else {
+        return;
+    };
     if app.shot_taken.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -576,6 +702,14 @@ fn debug_mouse(app: S<'_>, window: WebviewWindow, x: f64, y: f64, kind: Option<S
     winx::cdp(&window, "Input.dispatchMouseEvent", p.to_string());
 }
 
+/// Служебно: размер окна для проверки адаптивности. В обычном запуске команда ничего не делает.
+#[tauri::command]
+fn debug_resize(app: S<'_>, window: WebviewWindow, width: f64, height: f64) {
+    if app.args.screenshot.is_some() {
+        let _ = window.set_size(tauri::LogicalSize::new(width, height));
+    }
+}
+
 /// Яркость того, что сейчас видно в окне: уменьшенная серая копия кадра (ширина `width`, байт на точку,
 /// base64). По ней интерфейс подбирает светлый или тёмный цвет над клипом. Кадр никуда не уходит и не сохраняется.
 #[tauri::command]
@@ -583,24 +717,45 @@ async fn ui_probe(window: WebviewWindow, width: u32) -> Option<Value> {
     use base64::Engine;
     let jpeg = winx::capture_jpeg(&window).await.ok()??;
     let w = width.clamp(32, 640);
-    let (tw, th, gray) = tauri::async_runtime::spawn_blocking(move || winx::gray_thumb(&jpeg, w)).await.ok()??;
-    Some(json!({ "w": tw, "h": th, "data": base64::engine::general_purpose::STANDARD.encode(gray) }))
+    let (tw, th, gray) = tauri::async_runtime::spawn_blocking(move || winx::gray_thumb(&jpeg, w))
+        .await
+        .ok()??;
+    Some(
+        json!({ "w": tw, "h": th, "data": base64::engine::general_purpose::STANDARD.encode(gray) }),
+    )
 }
 
 // ---------- Окно ----------
+#[cfg(windows)]
+fn windows_data_dir(args: &Args) -> PathBuf {
+    if args.screenshot.is_some() && !args.portable {
+        return std::env::temp_dir().join("zvuk-glass-screenshot");
+    }
+    let base = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    base.join(if args.portable {
+        "Zvuk Glass Observatory Test"
+    } else {
+        "Zvuk Glass"
+    })
+}
+
+#[cfg(windows)]
+fn data_dir(_handle: &AppHandle, args: &Args) -> PathBuf {
+    windows_data_dir(args)
+}
+
+#[cfg(not(windows))]
 fn data_dir(handle: &AppHandle, args: &Args) -> PathBuf {
     if args.screenshot.is_some() {
         return std::env::temp_dir().join("zvuk-glass-screenshot");
     }
-    #[cfg(windows)]
-    {
-        let _ = handle;
-        let base = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-        base.join("Zvuk Glass")
-    }
     // Android: закрытая папка приложения
-    #[cfg(not(windows))]
-    handle.path().app_data_dir().unwrap_or_else(|_| std::env::temp_dir().join("zvuk-glass"))
+    handle
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::env::temp_dir().join("zvuk-glass"))
 }
 
 /// Общие для платформ данные для страницы: маршрут и служебные флаги.
@@ -626,7 +781,10 @@ fn init_script(a: &Args) -> String {
 
 /// Переход внутри окна: свои адреса — можно, внешние из белого списка — в браузер, остальное — нельзя.
 fn navigation_allowed(handle: &AppHandle, url: &url::Url) -> bool {
-    let local = url.host_str().map(|h| h == "tauri.localhost" || h.ends_with(".localhost")).unwrap_or(false);
+    let local = url
+        .host_str()
+        .map(|h| h == "tauri.localhost" || h.ends_with(".localhost"))
+        .unwrap_or(false);
     if !local && external_ok(url.as_str()) {
         open_external(handle, url.as_str());
     }
@@ -647,6 +805,43 @@ fn create_window(handle: &AppHandle, app: &Arc<App>) -> tauri::Result<WebviewWin
 /// можно показывать сразу, а не ждать, пока YouTube уберёт их сам. Приложению сообщаем, что стиль на месте.
 const YT_FRAME_JS: &str = r#"(function () {
   if (!/(^|\.)youtube(-nocookie)?\.com$/.test(location.hostname) || location.pathname.indexOf('/embed/') !== 0) return;
+  // YouTube читает сохранённое качество ещё до готовности IFrame API. Это только выбор качества,
+  // без доступа к аккаунту; обычные команды API продолжают применяться и после запуска.
+  var allowed = /^(auto|tiny|small|medium|large|hd720|hd1080|hd1440|hd2160|highres)$/;
+  var saveQuality = function (q) {
+    if (!allowed.test(q)) return;
+    try {
+      if (q === 'auto') localStorage.removeItem('yt-player-quality');
+      else {
+        var now = Date.now();
+        localStorage.setItem('yt-player-quality', JSON.stringify({ data: q, creation: now, expiration: now + 2419200000 }));
+      }
+    } catch (e) {}
+  };
+  var applyQuality = function (q) {
+    if (!allowed.test(q)) return;
+    saveQuality(q);
+    // IFrame API иногда молча пропускает смену качества после запуска. Тот же ограниченный
+    // набор команд отправляем непосредственно проигрывателю, сохраняя сам iframe и позицию.
+    var p = document.getElementById('movie_player');
+    if (!p) return;
+    try {
+      if (p.setPlaybackQualityRange) {
+        if (q === 'auto') p.setPlaybackQualityRange('default', 'highres');
+        else p.setPlaybackQualityRange(q, q);
+      }
+      if (p.setPlaybackQuality) p.setPlaybackQuality(q === 'auto' ? 'default' : q);
+    } catch (e) {}
+  };
+  var initial = /^#zgq=(auto|tiny|small|medium|large|hd720|hd1080|hd1440|hd2160|highres)$/.exec(location.hash);
+  if (initial) saveQuality(initial[1]);
+  window.addEventListener('message', function (e) {
+    if (e.source !== parent) return;
+    try {
+      var d = JSON.parse(e.data);
+      if (d && d.event === 'zgQuality') applyQuality(d.quality);
+    } catch (e) {}
+  });
   // новый интерфейс встроенного плеера (слой #player-controls поверх видео) и классический (.ytp-*)
   var css = '#player-controls, .ytPlayerControlsContainerHost, ytm-custom-control, #player-control-overlay,'
     + ' .html5-video-player > :not(.html5-video-container) { opacity: 0 !important; pointer-events: none !important; transition: none !important; }';
@@ -676,7 +871,18 @@ fn create_window(handle: &AppHandle, app: &Arc<App>) -> tauri::Result<WebviewWin
 
     let mut b = WebviewWindowBuilder::new(handle, "main", WebviewUrl::App("index.html".into()))
         .title("Zvuk Glass")
-        .inner_size(if shot { 1400.0 } else { num("width").unwrap_or(1360.0) }, if shot { 900.0 } else { num("height").unwrap_or(880.0) })
+        .inner_size(
+            if shot {
+                1400.0
+            } else {
+                num("width").unwrap_or(1360.0)
+            },
+            if shot {
+                900.0
+            } else {
+                num("height").unwrap_or(880.0)
+            },
+        )
         .min_inner_size(980.0, 640.0)
         .decorations(false)
         .shadow(true)
@@ -701,7 +907,10 @@ fn create_window(handle: &AppHandle, app: &Arc<App>) -> tauri::Result<WebviewWin
             }
         });
     if shot {
-        b = b.data_directory(data_dir(handle, a).join("webview")).focused(false).skip_taskbar(true);
+        b = b
+            .data_directory(data_dir(handle, a).join("webview"))
+            .focused(false)
+            .skip_taskbar(true);
     } else if let (Some(x), Some(y)) = (num("x"), num("y")) {
         b = b.position(x, y);
     } else {
@@ -710,7 +919,11 @@ fn create_window(handle: &AppHandle, app: &Arc<App>) -> tauri::Result<WebviewWin
     let win = b.build()?;
     if shot {
         winx::make_invisible(&win);
-    } else if bounds.get("maximized").and_then(Value::as_bool).unwrap_or(false) {
+    } else if bounds
+        .get("maximized")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
         let _ = win.maximize();
     }
     let _ = win.show();
@@ -771,7 +984,11 @@ fn diag(dir: &std::path::Path) {
     let s: Value = serde_json::from_str(&text).unwrap_or(json!({}));
     for p in ["token", "ytKey"] {
         let state = if let Some(v) = s[format!("{p}Dpapi")].as_str() {
-            if crypt::open(v).is_some() { "новый формат: читается" } else { "новый формат: НЕ читается" }
+            if crypt::open(v).is_some() {
+                "новый формат: читается"
+            } else {
+                "новый формат: НЕ читается"
+            }
         } else if let Some(v) = s[format!("{p}Enc")].as_str() {
             match crypt::open_electron_steps(dir, v) {
                 Ok(x) if !x.is_empty() => "из Electron: читается",
@@ -796,42 +1013,61 @@ fn run_installed_if_newer() -> bool {
     if cfg!(debug_assertions) {
         return false;
     }
-    let Some((dir, ver)) = winx::installed_copy() else { return false };
+    let Some((dir, ver)) = winx::installed_copy() else {
+        return false;
+    };
     let target = dir.join("zvuk-glass.exe");
-    let Ok(me) = std::env::current_exe() else { return false };
+    let Ok(me) = std::env::current_exe() else {
+        return false;
+    };
     let same = match (me.canonicalize(), target.canonicalize()) {
         (Ok(a), Ok(b)) => a == b,
         _ => return false, // установленного файла нет
     };
-    let num = |v: &str| -> Vec<u64> { v.split(['.', '-', '+']).take(3).map(|p| p.parse().unwrap_or(0)).collect() };
+    let num = |v: &str| -> Vec<u64> {
+        v.split(['.', '-', '+'])
+            .take(3)
+            .map(|p| p.parse().unwrap_or(0))
+            .collect()
+    };
     if same || num(&ver) <= num(env!("CARGO_PKG_VERSION")) {
         return false;
     }
-    std::process::Command::new(&target).args(std::env::args_os().skip(1)).spawn().is_ok()
+    std::process::Command::new(&target)
+        .args(std::env::args_os().skip(1))
+        .spawn()
+        .is_ok()
 }
 
 /// Служебные режимы Windows-версии (--diag…): проверка переноса, захвата звука и т. п. true — выйти.
 #[cfg(windows)]
 fn windows_service_modes(args: &Args) -> bool {
-    if args.screenshot.is_none() && std::env::args().all(|a| !a.starts_with("--diag")) && run_installed_if_newer() {
+    if !args.portable
+        && args.screenshot.is_none()
+        && std::env::args().all(|a| !a.starts_with("--diag"))
+        && run_installed_if_newer()
+    {
         return true;
     }
     // служебно: где установлена программа по записи установщика (--diag-installed)
     if std::env::args().any(|a| a == "--diag-installed") {
-        println!("installed: {:?} | this: {} | exe: {:?}", winx::installed_copy(), env!("CARGO_PKG_VERSION"), std::env::current_exe().ok());
+        println!(
+            "installed: {:?} | this: {} | exe: {:?}",
+            winx::installed_copy(),
+            env!("CARGO_PKG_VERSION"),
+            std::env::current_exe().ok()
+        );
         return true;
     }
-    let dir = if args.screenshot.is_some() {
-        std::env::temp_dir().join("zvuk-glass-screenshot")
-    } else {
-        std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("Zvuk Glass")
-    };
+    let dir = windows_data_dir(args);
     if std::env::args().any(|a| a == "--diag") {
         diag(&dir);
         return true;
     }
     // служебно: проверка захвата звука с устройства вывода (--diag-capture)
-    if let Some(d) = std::env::args().find_map(|a| a.strip_prefix("--diag-match=").map(String::from)) {
+    if let Some(d) =
+        std::env::args().find_map(|a| a.strip_prefix("--diag-match=").map(String::from))
+    {
         println!("{}", sync::diag_match(std::path::Path::new(&d)));
         return true;
     }
@@ -840,7 +1076,9 @@ fn windows_service_modes(args: &Args) -> bool {
         return true;
     }
     // служебно: расшифровать строку, зашифрованную Electron safeStorage (из файла), — проверка совместимости
-    if let Some(f) = std::env::args().find_map(|a| a.strip_prefix("--diag-probe=").map(String::from)) {
+    if let Some(f) =
+        std::env::args().find_map(|a| a.strip_prefix("--diag-probe=").map(String::from))
+    {
         let b64 = std::fs::read_to_string(f).unwrap_or_default();
         match crypt::open_electron_steps(&dir, b64.trim()) {
             Ok(v) => println!("probe: OK, длина {}", v.len()),
@@ -869,8 +1107,8 @@ pub fn run() {
     let mut builder = tauri::Builder::default();
     #[cfg(windows)]
     {
-        if !shot {
-            // Второй запуск просто показывает уже открытое окно
+        if !shot && !args.portable {
+            // Обычный второй запуск показывает открытое окно. Переносной тест не перехватывает основную копию.
             builder = builder.plugin(tauri_plugin_single_instance::init(|h, _, _| {
                 if let Some(w) = winx::main_window(h) {
                     let _ = w.unminimize();
@@ -883,22 +1121,43 @@ pub fn run() {
     }
     #[cfg(target_os = "android")]
     {
-        builder = builder.plugin(tauri_plugin_opener::init()).plugin(tauri_plugin_clipboard_manager::init()).plugin(mobile::plugin());
+        builder = builder
+            .plugin(tauri_plugin_opener::init())
+            .plugin(tauri_plugin_clipboard_manager::init())
+            .plugin(mobile::plugin());
     }
 
     let (ready_tx, ready_rx) = watch::channel(false);
     let tauri_app = builder
         .register_asynchronous_uri_scheme_protocol("zgs", |ctx, req, responder| {
-            let Some(a) = ctx.app_handle().try_state::<Arc<App>>().map(|s| s.inner().clone()) else {
-                return responder.respond(tauri::http::Response::builder().status(503).body(Vec::new()).unwrap());
+            let Some(a) = ctx
+                .app_handle()
+                .try_state::<Arc<App>>()
+                .map(|s| s.inner().clone())
+            else {
+                return responder.respond(
+                    tauri::http::Response::builder()
+                        .status(503)
+                        .body(Vec::new())
+                        .unwrap(),
+                );
             };
             tauri::async_runtime::spawn(async move {
                 responder.respond(a.streams.serve(req).await);
             });
         })
         .register_asynchronous_uri_scheme_protocol("zgm", |ctx, req, responder| {
-            let Some(a) = ctx.app_handle().try_state::<Arc<App>>().map(|s| s.inner().clone()) else {
-                return responder.respond(tauri::http::Response::builder().status(503).body(Vec::new()).unwrap());
+            let Some(a) = ctx
+                .app_handle()
+                .try_state::<Arc<App>>()
+                .map(|s| s.inner().clone())
+            else {
+                return responder.respond(
+                    tauri::http::Response::builder()
+                        .status(503)
+                        .body(Vec::new())
+                        .unwrap(),
+                );
             };
             std::thread::spawn(move || responder.respond(media::serve_file(&a.store, &req)));
         })
@@ -934,7 +1193,9 @@ pub fn run() {
             update_install,
             screenshot_ready,
             debug_log,
+            debug_api_stats,
             debug_mouse,
+            debug_resize,
             ui_probe,
             lyrics_external,
         ])
@@ -966,13 +1227,20 @@ pub fn run() {
                 });
             }
             create_window(&handle, &app)?;
-            if !shot || app.args.updtest {
-                app.updates.clone().start(handle.clone(), updates::first_check(shot));
+            if (!shot || app.args.updtest) && !app.args.portable {
+                app.updates
+                    .clone()
+                    .start(handle.clone(), updates::first_check(shot));
             }
             if shot {
                 // страховка: служебный запуск не висит вечно
                 let h = handle.clone();
-                let long = app.args.updtest || app.args.extra.as_deref().is_some_and(|e| e.starts_with("clipsync") || e == "lyrext");
+                let long = app.args.updtest
+                    || app
+                        .args
+                        .extra
+                        .as_deref()
+                        .is_some_and(|e| e.starts_with("clipsync") || e == "lyrext");
                 let limit = if long { 300 } else { 60 };
                 std::thread::spawn(move || {
                     std::thread::sleep(Duration::from_secs(limit));

@@ -13,32 +13,109 @@ use crate::zvuk::{ApiError, ApiResult};
 const API: &str = "https://www.googleapis.com/youtube/v3";
 
 static NON_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[^\p{L}\p{N}]+").unwrap());
-static CH_SUFFIX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" (official|music|vevo|topic)$").unwrap());
+static CH_SUFFIX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r" (official|music|vevo|topic)$").unwrap());
 // «настоящий клип»: official music video, официальный клип, MV…
 static CLIP_WORDS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(official music video|official video|music video|official mv|\bmv\b|официальный клип|официальное видео|премьера клипа|\bклип\b)").unwrap()
 });
-static OFFICIAL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(official|официальн|премьера)").unwrap());
+static OFFICIAL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(official|официальн|премьера)").unwrap());
 // хвосты в названии трека, которых обычно нет в названии клипа: (feat. …), [prod. …], ft. …
-static TITLE_TAIL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\s*(\(|\[|\s(feat|ft)\.?\s).*$").unwrap());
-static ISO: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?").unwrap());
-static VIDEO_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:youtu\.be/|[?&]v=|/embed/|/shorts/|/live/)([\w-]{11})").unwrap());
+static TITLE_TAIL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)\s*(\(|\[|\s(feat|ft)\.?\s).*$").unwrap());
+static ISO: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?").unwrap());
+static VIDEO_ID: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:youtu\.be/|[?&]v=|/embed/|/shorts/|/live/)([\w-]{11})").unwrap()
+});
 static BARE_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[\w-]{11}$").unwrap());
 
 /// Версия подбора: записи кэша без клипа, найденные прежним подбором, ищутся заново.
-pub const SEARCH_V: i64 = 2;
+pub const SEARCH_V: i64 = 3;
+
+/// Порядок поисковой выдачи сохраняем только до оценки; повторы не отправляем в details.
+fn merge_ids(ids: &mut Vec<String>, found: Vec<String>) {
+    for id in found {
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+}
 
 /// Признаки «не тот ролик» — подстрокой: переводы, лирик-видео, хореография, реакции, «10 часов»…
 const BAD_SUB: [&str; 40] = [
-    "lyric", "караоке", "karaoke", "кавер", "nightcore", "tradu", "перевод", "choreograph", "хореограф", "subtitul", "legendad",
-    "fanmade", "fan made", "reaction", "реакци", "instrumental", "минусовк", "tutorial", "разбор", "visualizer", "teaser", "тизер",
-    "trailer", "трейлер", "snippet", "сниппет", "acoustic", "акустик", "slowed", "sped up", "speed up", "behind the scenes",
-    "making of", "dance practice", "dance cover", "color coded", "часов", "hours", "hour version", "текст песни",
+    "lyric",
+    "караоке",
+    "karaoke",
+    "кавер",
+    "nightcore",
+    "tradu",
+    "перевод",
+    "choreograph",
+    "хореограф",
+    "subtitul",
+    "legendad",
+    "fanmade",
+    "fan made",
+    "reaction",
+    "реакци",
+    "instrumental",
+    "минусовк",
+    "tutorial",
+    "разбор",
+    "visualizer",
+    "teaser",
+    "тизер",
+    "trailer",
+    "трейлер",
+    "snippet",
+    "сниппет",
+    "acoustic",
+    "акустик",
+    "slowed",
+    "sped up",
+    "speed up",
+    "behind the scenes",
+    "making of",
+    "dance practice",
+    "dance cover",
+    "color coded",
+    "часов",
+    "hours",
+    "hour version",
+    "текст песни",
 ];
 /// …и целым словом (чтобы «live» не ловилось в «alive», а «edit» — в «edition»).
 const BAD_WORD: [&str; 28] = [
-    "cover", "live", "remix", "ремикс", "концерт", "concert", "audio", "аудио", "8d", "amv", "edit", "fancam", "letra", "mashup", "loop",
-    "extended", "shorts", "dance", "performance", "stage", "fmv", "fan", "текст", "минус", "лайв", "acapella", "lofi", "sub",
+    "cover",
+    "live",
+    "remix",
+    "ремикс",
+    "концерт",
+    "concert",
+    "audio",
+    "аудио",
+    "8d",
+    "amv",
+    "edit",
+    "fancam",
+    "letra",
+    "mashup",
+    "loop",
+    "extended",
+    "shorts",
+    "dance",
+    "performance",
+    "stage",
+    "fmv",
+    "fan",
+    "текст",
+    "минус",
+    "лайв",
+    "acapella",
+    "lofi",
+    "sub",
 ];
 
 fn norm(s: &str) -> String {
@@ -102,7 +179,11 @@ fn has_word(text: &str, w: &str) -> bool {
 /// ISO 8601 (PT3M25S) → секунды
 fn iso_dur(s: &str) -> i64 {
     let Some(m) = ISO.captures(s) else { return 0 };
-    let g = |i: usize| m.get(i).and_then(|x| x.as_str().parse::<i64>().ok()).unwrap_or(0);
+    let g = |i: usize| {
+        m.get(i)
+            .and_then(|x| x.as_str().parse::<i64>().ok())
+            .unwrap_or(0)
+    };
     g(1) * 86400 + g(2) * 3600 + g(3) * 60 + g(4)
 }
 
@@ -118,14 +199,28 @@ fn short_title(track: &Value) -> String {
 }
 
 /// Оценка «насколько это официальный клип именно этого трека» и есть ли в ролике название трека.
-fn score(title: &str, channel: &str, dur: i64, views: u64, max_views: u64, track: &Value) -> (i64, bool) {
+fn score(
+    title: &str,
+    channel: &str,
+    dur: i64,
+    views: u64,
+    max_views: u64,
+    track: &Value,
+) -> (i64, bool) {
     let t = norm(title);
     let ch = norm(channel);
     let tt = norm(&short_title(track));
     let artists: Vec<String> = track
         .get("artists")
         .and_then(Value::as_array)
-        .map(|a| a.iter().take(3).filter_map(Value::as_str).map(norm).filter(|x| !x.is_empty()).collect())
+        .map(|a| {
+            a.iter()
+                .take(3)
+                .filter_map(Value::as_str)
+                .map(norm)
+                .filter(|x| !x.is_empty())
+                .collect()
+        })
         .unwrap_or_default();
     let mut s = 0;
     let title_ok = has(&t, &tt);
@@ -190,18 +285,40 @@ pub fn pick_index(cands: &[Value]) -> Value {
 }
 
 fn api_error(j: &Value, status: u16) -> ApiError {
-    let reason = j.pointer("/error/errors/0/reason").and_then(Value::as_str).unwrap_or("");
-    let msg = j.pointer("/error/message").and_then(Value::as_str).unwrap_or("");
+    let reason = j
+        .pointer("/error/errors/0/reason")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let msg = j
+        .pointer("/error/message")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     if reason == "quotaExceeded" || reason == "dailyLimitExceeded" {
-        return ApiError::new("QUOTA", "Дневной лимит поиска YouTube исчерпан — найденные клипы продолжат работать");
+        return ApiError::new(
+            "QUOTA",
+            "Дневной лимит поиска YouTube исчерпан — найденные клипы продолжат работать",
+        );
     }
     if reason == "keyInvalid" || msg.to_lowercase().contains("api key not valid") {
         return ApiError::new("BAD_KEY", "Ключ YouTube недействителен");
     }
-    if reason == "accessNotConfigured" || msg.contains("has not been used") || msg.contains("is disabled") {
-        return ApiError::new("API_DISABLED", "В проекте Google не включён «YouTube Data API v3»");
+    if reason == "accessNotConfigured"
+        || msg.contains("has not been used")
+        || msg.contains("is disabled")
+    {
+        return ApiError::new(
+            "API_DISABLED",
+            "В проекте Google не включён «YouTube Data API v3»",
+        );
     }
-    ApiError::new("API", if msg.is_empty() { format!("Ошибка YouTube (HTTP {status})") } else { msg.to_string() })
+    ApiError::new(
+        "API",
+        if msg.is_empty() {
+            format!("Ошибка YouTube (HTTP {status})")
+        } else {
+            msg.to_string()
+        },
+    )
 }
 
 pub struct Clips {
@@ -213,19 +330,36 @@ pub struct Clips {
 impl Clips {
     pub fn new(dir: &std::path::Path) -> Self {
         let file = dir.join("clips.json");
-        let data = std::fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-        let http = crate::net::builder().timeout(Duration::from_secs(15)).build().expect("http client");
-        Self { http, file, data: Mutex::new(data) }
+        let data = std::fs::read_to_string(&file)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
+        let http = crate::net::builder()
+            .timeout(Duration::from_secs(15))
+            .build()
+            .expect("http client");
+        Self {
+            http,
+            file,
+            data: Mutex::new(data),
+        }
     }
 
     async fn get_json(&self, path: &str, params: &[(&str, &str)]) -> ApiResult<Value> {
-        let qs = url::form_urlencoded::Serializer::new(String::new()).extend_pairs(params).finish();
+        let qs = url::form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(params)
+            .finish();
         let r = self
             .http
             .get(format!("{API}/{path}?{qs}"))
             .send()
             .await
-            .map_err(|e| ApiError::new("NETWORK", format!("YouTube недоступен: {}", crate::zvuk::short_err(&e))))?;
+            .map_err(|e| {
+                ApiError::new(
+                    "NETWORK",
+                    format!("YouTube недоступен: {}", crate::zvuk::short_err(&e)),
+                )
+            })?;
         let status = r.status();
         let j: Value = r.json().await.unwrap_or(json!({}));
         if !status.is_success() {
@@ -236,17 +370,44 @@ impl Clips {
 
     /// Проверка ключа самым дешёвым запросом (1 единица квоты).
     pub async fn check_key(&self, key: &str) -> ApiResult<()> {
-        self.get_json("videos", &[("part", "id"), ("id", "dQw4w9WgXcQ"), ("key", key)]).await.map(|_| ())
+        self.get_json(
+            "videos",
+            &[("part", "id"), ("id", "dQw4w9WgXcQ"), ("key", key)],
+        )
+        .await
+        .map(|_| ())
     }
 
     /// Поиск роликов (100 единиц квоты).
     async fn search_ids(&self, key: &str, q: &str) -> ApiResult<Vec<String>> {
+        self.search_ids_limited(key, q, 12).await
+    }
+
+    async fn search_ids_limited(&self, key: &str, q: &str, limit: usize) -> ApiResult<Vec<String>> {
         let j = self
-            .get_json("search", &[("part", "snippet"), ("type", "video"), ("videoEmbeddable", "true"), ("maxResults", "12"), ("q", q), ("key", key)])
+            .get_json(
+                "search",
+                &[
+                    ("part", "snippet"),
+                    ("type", "video"),
+                    ("videoEmbeddable", "true"),
+                    ("maxResults", &limit.to_string()),
+                    ("q", q),
+                    ("key", key),
+                ],
+            )
             .await?;
         Ok(j.get("items")
             .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(|i| i.pointer("/id/videoId").and_then(Value::as_str).map(String::from)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|i| {
+                        i.pointer("/id/videoId")
+                            .and_then(Value::as_str)
+                            .map(String::from)
+                    })
+                    .collect()
+            })
             .unwrap_or_default())
     }
 
@@ -255,13 +416,33 @@ impl Clips {
         if ids.is_empty() {
             return Ok(vec![]);
         }
-        let d = self.get_json("videos", &[("part", "contentDetails,status,snippet,statistics"), ("id", &ids.join(",")), ("key", key)]).await?;
+        let d = self
+            .get_json(
+                "videos",
+                &[
+                    ("part", "contentDetails,status,snippet,statistics"),
+                    ("id", &ids.join(",")),
+                    ("key", key),
+                ],
+            )
+            .await?;
         let items: Vec<&Value> = d
             .get("items")
             .and_then(Value::as_array)
-            .map(|a| a.iter().filter(|v| v.pointer("/status/embeddable").and_then(Value::as_bool) != Some(false)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter(|v| {
+                        v.pointer("/status/embeddable").and_then(Value::as_bool) != Some(false)
+                    })
+                    .collect()
+            })
             .unwrap_or_default();
-        let views = |v: &Value| v.pointer("/statistics/viewCount").and_then(Value::as_str).and_then(|x| x.parse::<u64>().ok()).unwrap_or(0);
+        let views = |v: &Value| {
+            v.pointer("/statistics/viewCount")
+                .and_then(Value::as_str)
+                .and_then(|x| x.parse::<u64>().ok())
+                .unwrap_or(0)
+        };
         let max_views = items.iter().map(|v| views(v)).max().unwrap_or(0);
         let mut cands: Vec<(bool, i64, Value)> = items
             .iter()
@@ -278,25 +459,43 @@ impl Clips {
         Ok(cands.into_iter().map(|c| c.2).collect())
     }
 
-    /// Кандидаты для трека { id, title, artists: [названия], duration }, лучшие первыми.
-    /// Сначала «исполнитель название клип / official music video»; если ничего похожего — ещё раз без этих слов.
+    /// Два независимых запроса идут параллельно, подробности объединённого списка загружаются один раз.
+    /// Это не последовательный «сначала рейтинг, потом второй поиск» и не повторный расход квоты на details.
     pub async fn search(&self, key: &str, track: &Value) -> ApiResult<Vec<Value>> {
-        let artist = track.pointer("/artists/0").and_then(Value::as_str).unwrap_or("");
+        let artist = track
+            .pointer("/artists/0")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         let title = short_title(track);
-        let cyr = format!("{title}{artist}").to_lowercase().chars().any(|c| ('а'..='я').contains(&c) || c == 'ё');
-        let q = format!("{artist} {title} {}", if cyr { "клип" } else { "official music video" }).trim().to_string();
-        let mut ids = self.search_ids(key, &q).await?;
-        let mut cands = self.rate(key, &ids, track).await?;
-        let good = cands.first().is_some_and(|x| x["ok"].as_bool().unwrap_or(false) && x["score"].as_i64().unwrap_or(-99) >= 7);
-        if !good {
-            let q2 = format!("{artist} {title}").trim().to_string();
-            for id in self.search_ids(key, &q2).await? {
-                if !ids.contains(&id) {
-                    ids.push(id);
-                }
+        let cyr = format!("{title}{artist}")
+            .to_lowercase()
+            .chars()
+            .any(|c| ('а'..='я').contains(&c) || c == 'ё');
+        let q = format!(
+            "{artist} {title} {}",
+            if cyr {
+                "клип"
+            } else {
+                "official music video"
             }
-            cands = self.rate(key, &ids, track).await?;
+        )
+        .trim()
+        .to_string();
+        let broad = format!("{artist} {title}").trim().to_string();
+        let (specific, broad) =
+            futures::join!(self.search_ids(key, &q), self.search_ids(key, &broad));
+        let mut ids = Vec::new();
+        let mut errors = Vec::new();
+        for result in [specific, broad] {
+            match result {
+                Ok(found) => merge_ids(&mut ids, found),
+                Err(e) => errors.push(e),
+            }
         }
+        if ids.is_empty() && !errors.is_empty() {
+            return Err(errors.remove(0));
+        }
+        let mut cands = self.rate(key, &ids, track).await?;
         cands.truncate(12);
         Ok(cands)
     }
@@ -336,7 +535,10 @@ pub fn parse_video_id(text: &str) -> Option<String> {
     if BARE_ID.is_match(s) {
         return Some(s.to_string());
     }
-    VIDEO_ID.captures(s).and_then(|m| m.get(1)).map(|m| m.as_str().to_string())
+    VIDEO_ID
+        .captures(s)
+        .and_then(|m| m.get(1))
+        .map(|m| m.as_str().to_string())
 }
 
 pub fn now_ms() -> i64 {
@@ -362,7 +564,8 @@ mod tests {
 
     #[test]
     fn let_you_down_prefers_official_mv_over_translation() {
-        let track = json!({ "title": "Let You Down", "artists": ["Dawid Podsiadło"], "duration": 227 });
+        let track =
+            json!({ "title": "Let You Down", "artists": ["Dawid Podsiadło"], "duration": 227 });
         let r = rank(track, &[
             ("Dawid Podsiadło - Let You Down (tradução)", "Insight Lyrics", 226, 2_000_000),
             ("Cyberpunk: Edgerunners — Ending Theme | Let You Down by Dawid Podsiadło | Netflix", "Cyberpunk 2077", 284, 40_000_000),
@@ -371,7 +574,10 @@ mod tests {
             ("Dawid Podsiadło - Let You Down (Lyrics)", "BangersOnly", 227, 5_000_000),
             ("Let You Down", "Dawid Podsiadlo - Topic", 227, 8_000_000),
         ]);
-        assert!(r[0].0.contains("Cyberpunk: Edgerunners — Ending Theme"), "{r:?}");
+        assert!(
+            r[0].0.contains("Cyberpunk: Edgerunners — Ending Theme"),
+            "{r:?}"
+        );
     }
 
     #[test]
@@ -389,15 +595,40 @@ mod tests {
     #[test]
     fn cyrillic_title_matches_latin_video() {
         let track = json!({ "title": "Темнота", "artists": ["aikko"], "duration": 180 });
-        let r = rank(track, &[("aikko - temnota (mood video)", "aikko", 182, 100_000), ("Pyrokinesis - В городе где гаснут фонари (2019)", "x", 209, 1_000_000)]);
+        let r = rank(
+            track,
+            &[
+                ("aikko - temnota (mood video)", "aikko", 182, 100_000),
+                (
+                    "Pyrokinesis - В городе где гаснут фонари (2019)",
+                    "x",
+                    209,
+                    1_000_000,
+                ),
+            ],
+        );
         assert!(r[0].2 && r[0].0.contains("temnota"), "{r:?}");
-        assert!(pick_index(&[json!({ "ok": r[0].2, "score": r[0].1 })]).is_number(), "{r:?}");
+        assert!(
+            pick_index(&[json!({ "ok": r[0].2, "score": r[0].1 })]).is_number(),
+            "{r:?}"
+        );
     }
 
     #[test]
     fn title_tail_is_dropped() {
-        assert_eq!(short_title(&json!({ "title": "Song (feat. Someone)" })), "Song");
+        assert_eq!(
+            short_title(&json!({ "title": "Song (feat. Someone)" })),
+            "Song"
+        );
         assert_eq!(short_title(&json!({ "title": "Song ft. Someone" })), "Song");
         assert_eq!(short_title(&json!({ "title": "(Intro)" })), "(Intro)");
+    }
+
+    #[test]
+    fn parallel_results_are_deduplicated_before_rating() {
+        let mut ids = vec!["first".to_string()];
+        merge_ids(&mut ids, vec!["first".to_string(), "second".to_string()]);
+        merge_ids(&mut ids, vec!["second".to_string(), "third".to_string()]);
+        assert_eq!(ids, ["first", "second", "third"]);
     }
 }

@@ -7,6 +7,8 @@
     content="default-src 'self'; img-src 'self' data: blob: http://zgm.localhost https://zvuk.com https://*.zvuk.com https://zvooq.com https://*.zvooq.com https://*.sbercloud.ru https://i.ytimg.com; media-src blob: http://zgs.localhost http://zgm.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost; font-src 'self' data:; frame-src https://www.youtube-nocookie.com; object-src 'none'; base-uri 'none'" />
   <title>Zvuk Glass</title>
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="glass-ui.css" />
+  <link rel="stylesheet" href="orbital-theme.css" />
 </head>
 <body>
   <!-- Фон: размытая обложка / свои обои / видео / градиент + цветные пятна -->
@@ -35,9 +37,9 @@
 
   <div id="app" class="hidden">
     <header class="titlebar">
-      <div class="brand">
-        <div class="brand-mark"></div>
-        <span>Zvuk&nbsp;Glass</span>
+      <div class="brand" aria-label="Zvuk Glass — музыкальная обсерватория">
+        <img class="brand-logo" src="brand.svg" alt="" />
+        <span class="brand-word"><b>ZVUK</b><strong>GLASS</strong><small>OBSERVATORY</small></span>
       </div>
       <div class="tb-nav">
         <button class="icon-btn glass-btn" data-act="back" title="Назад (Alt+←)" id="btnBack"><span class="i" data-icon="chevronLeft"></span></button>
@@ -48,6 +50,10 @@
         <input id="searchInput" type="search" placeholder="Треки, альбомы, исполнители…" autocomplete="off" spellcheck="false" />
         <kbd>Ctrl K</kbd>
       </label>
+      <div class="recent-top hidden" id="recentTop" role="group" aria-label="Последние поисковые запросы">
+        <span class="recent-top-label">Недавнее</span>
+        <div class="recent-top-list" id="recentTopList"></div>
+      </div>
       <div class="tb-right">
         <button class="profile-chip glass" data-act="nav" data-view="settings" id="profileChip"></button>
       </div>
@@ -55,9 +61,10 @@
 
     <aside class="sidebar glass panel" id="sidebar">
       <div class="nav-indicator" id="navIndicator"></div>
+      <div class="side-caption"><span>Навигация</span><i>ZG / 01</i></div>
       <nav class="nav" id="mainNav">
         <button class="nav-item" data-act="nav" data-view="home" title="Главная"><span class="i" data-icon="home"></span><span class="lbl">Главная</span></button>
-        <button class="nav-item" data-act="nav" data-view="wave" title="Моя волна"><span class="i" data-icon="wave"></span><span class="lbl">Моя волна</span></button>
+        <button class="nav-item" data-act="nav" data-view="wave" title="Музыкальная орбита"><span class="i" data-icon="wave"></span><span class="lbl">Музыкальная орбита</span></button>
         <button class="nav-item" data-act="nav" data-view="popular" title="Популярное"><span class="i" data-icon="fire"></span><span class="lbl">Популярное</span></button>
         <button class="nav-item" data-act="nav" data-view="search" title="Поиск"><span class="i" data-icon="search"></span><span class="lbl">Поиск</span></button>
         <button class="nav-item" data-act="nav" data-view="visualizer" title="Визуализатор"><span class="i" data-icon="viz"></span><span class="lbl">Визуализатор</span></button>
@@ -82,6 +89,10 @@
         </div>
       </div>
       <div class="side-playlists" id="sidePlaylists" data-sec-body="pl"></div>
+      <div class="side-orbit" aria-hidden="true"><i></i><span></span></div>
+      <div class="nav-bottom">
+        <button class="nav-item" data-act="nav" data-view="settings" title="Настройки"><span class="i" data-icon="settings"></span><span class="lbl">Настройки</span></button>
+      </div>
       <button class="sb-toggle" data-act="toggle-compact" id="sbToggle" title="Свернуть панель"><span class="i" data-icon="chevronsLeft"></span><span class="lbl">Свернуть панель</span></button>
     </aside>
 
@@ -109,7 +120,7 @@
         <button class="pl-cover" data-act="nowplaying" title="Открыть плеер"><img id="plCover" alt="" /><div class="eq" id="plEq"><i></i><i></i><i></i></div></button>
         <div class="pl-meta">
           <div class="pl-title" id="plTitle">Ничего не играет</div>
-          <div class="pl-artist" id="plArtist">Выберите трек или включите «Мою волну»</div>
+          <div class="pl-artist" id="plArtist">Выберите трек или включите «Музыкальную орбиту»</div>
         </div>
         <button class="icon-btn like-btn" id="plLike" data-act="like-current" title="Нравится (Ctrl+L)"><span class="i" data-icon="heart"></span></button>
       </div>
@@ -184,9 +195,15 @@
   <!-- Экран входа -->
   <section id="login" class="login hidden">
     <div class="login-card glass panel liquid">
-      <div class="brand-mark big"></div>
-      <h1>Zvuk Glass</h1>
-      <p class="muted">Неофициальный плеер для Zvuk. Подключите свой аккаунт, чтобы слушать музыку по своей подписке.</p>
+      <div class="login-intro">
+        <div class="page-kicker"><span class="signal-dot"></span>Музыкальная обсерватория</div>
+        <img class="brand-logo big" src="brand.svg" alt="" />
+        <h1>ZVUK<br><span>GLASS</span></h1>
+        <p class="muted">Ваша музыка — в новом пространстве. Подключите аккаунт Zvuk, чтобы открыть свою орбиту.</p>
+        <div class="login-orbit" aria-hidden="true"><i></i><i></i><span></span></div>
+      </div>
+      <div class="login-setup">
+        <div class="login-step-title"><span>Подключение</span><small>3 шага</small></div>
       <ol class="steps">
         <li>
           <span class="num">1</span>
@@ -211,6 +228,7 @@
       </form>
       <p class="muted small" style="margin:14px 0 0">Токен хранится только на этом компьютере в зашифрованном виде. Пароль от Zvuk приложению не нужен.</p>
       <div class="login-error hidden" id="loginError"></div>
+      </div>
     </div>
   </section>
 
@@ -227,6 +245,7 @@
   <script src="audio-fx.js"></script>
   <script src="visualizer.js"></script>
   <script src="custom.js"></script>
+  <script src="clip-sync.js"></script>
   <script src="clip.js"></script>
   <script src="vizscene.js"></script>
   <script src="ink.js"></script>

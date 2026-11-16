@@ -1,9 +1,10 @@
 //! Клиент неофициального API Zvuk (zvuk.com): тот же GraphQL-эндпоинт, что у веб-плеера, и пара REST-методов «tiny».
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
+use tokio::sync::watch;
 
 use futures::future::try_join_all;
 use reqwest::header::{HeaderMap, HeaderValue, LOCATION, SET_COOKIE};
@@ -22,7 +23,11 @@ static UA: OnceLock<String> = OnceLock::new();
 /// User-Agent по версии встроенного в Windows движка WebView2 (это Edge той же версии): приложение
 /// представляется тем, чем и является, а строка не устаревает — движок обновляется вместе с Windows.
 pub fn set_engine_version(version: &str) {
-    if let Some(major) = version.split('.').next().filter(|m| !m.is_empty() && m.chars().all(|c| c.is_ascii_digit())) {
+    if let Some(major) = version
+        .split('.')
+        .next()
+        .filter(|m| !m.is_empty() && m.chars().all(|c| c.is_ascii_digit()))
+    {
         let _ = UA.set(format!(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36 Edg/{major}.0.0.0"
         ));
@@ -48,7 +53,12 @@ struct Pace {
 
 impl Pace {
     fn new() -> Self {
-        Self { slots: tokio::sync::Semaphore::new(MAX_PARALLEL), next: Mutex::new(Instant::now()), blocked_until: Mutex::new(None), strikes: AtomicU32::new(0) }
+        Self {
+            slots: tokio::sync::Semaphore::new(MAX_PARALLEL),
+            next: Mutex::new(Instant::now()),
+            blocked_until: Mutex::new(None),
+            strikes: AtomicU32::new(0),
+        }
     }
 
     fn check(&self) -> ApiResult<()> {
@@ -65,7 +75,11 @@ impl Pace {
     /// Дождаться своей очереди: свободного слота и промежутка после предыдущего запроса.
     async fn turn(&self) -> ApiResult<tokio::sync::SemaphorePermit<'_>> {
         self.check()?;
-        let permit = self.slots.acquire().await.map_err(|_| ApiError::new("NETWORK", "Клиент Zvuk остановлен"))?;
+        let permit = self
+            .slots
+            .acquire()
+            .await
+            .map_err(|_| ApiError::new("NETWORK", "Клиент Zvuk остановлен"))?;
         self.gap().await;
         self.check()?;
         Ok(permit)
@@ -105,8 +119,10 @@ const CACHE_MAX: usize = 240;
 fn cache_ttl(method: &str) -> Option<u64> {
     Some(match method {
         "getRelease" | "getReleasesShort" | "getArtistsShort" | "getLyrics" | "getWaves" => 3600,
-        "getArtist" | "getArtistTracks" | "getTracks" | "getRelatedTracks" | "recommendations" | "synthesisPlaylists" | "popular" => 600,
+        "getArtist" | "getArtistTracks" | "getTracks" | "getRelatedTracks" | "recommendations"
+        | "synthesisPlaylists" | "popular" => 600,
         "getPlaylist" | "getPlaylistsShort" | "search" | "quickSearch" | "autocomplete" => 180,
+        "getSubscription" => 30,
         // ссылка на поток живёт сутки — держим её 30 минут, чтобы повтор и перемотка не запрашивали её заново
         "getStream" => 1800,
         _ => return None,
@@ -115,7 +131,14 @@ fn cache_ttl(method: &str) -> Option<u64> {
 
 /// Изменения плейлистов сбрасывают их копии в кэше.
 fn drops_playlists(method: &str) -> bool {
-    matches!(method, "createPlaylist" | "addTracksToPlaylist" | "updatePlaylist" | "renamePlaylist" | "deletePlaylist")
+    matches!(
+        method,
+        "createPlaylist"
+            | "addTracksToPlaylist"
+            | "updatePlaylist"
+            | "renamePlaylist"
+            | "deletePlaylist"
+    )
 }
 
 // ---------- Фрагменты полей ----------
@@ -133,7 +156,8 @@ fn track() -> String {
   release {{ id title date type {IMG} }}"
     )
 }
-const PLAYLIST_SHORT: &str = "id title description duration isPublic userId image { src palette } coverV1 { src }";
+const PLAYLIST_SHORT: &str =
+    "id title description duration isPublic userId image { src palette } coverV1 { src }";
 
 /// ID «Плейлистов для вас» (синтезированные под пользователя), стабильны для аккаунта.
 pub const SYNTHESIS_PLAYLIST_IDS: [&str; 8] = ["3", "4", "6", "11", "12", "13", "14", "15"];
@@ -142,7 +166,9 @@ pub const SYNTHESIS_PLAYLIST_IDS: [&str; 8] = ["3", "4", "6", "11", "12", "13", 
 /// «Топ 100» — самые прослушиваемые треки дня.
 pub const CHART_PLAYLIST_ID: &str = "1062105";
 /// Чарты и хиты: «Топ 100», «Сейчас в тренде», «Актуальные хиты», «Вирусные хиты», «ХИТЫ: русская музыка», «Русские хиты | Свежее».
-pub const CHART_PLAYLIST_IDS: [&str; 6] = ["1062105", "12223715", "5607924", "6836834", "7843601", "8404351"];
+pub const CHART_PLAYLIST_IDS: [&str; 6] = [
+    "1062105", "12223715", "5607924", "6836834", "7843601", "8404351",
+];
 /// «Главные хиты» 2010-х, 2000-х, 90-х и 80-х.
 pub const DECADE_PLAYLIST_IDS: [&str; 4] = ["14613629", "14613627", "14613624", "14613623"];
 
@@ -154,7 +180,10 @@ pub struct ApiError {
 
 impl ApiError {
     pub fn new(code: &str, message: impl Into<String>) -> Self {
-        Self { code: code.into(), message: message.into() }
+        Self {
+            code: code.into(),
+            message: message.into(),
+        }
     }
 }
 
@@ -169,7 +198,12 @@ pub type ApiResult<T = Value> = Result<T, ApiError>;
 /// Zvuk иногда присылает null внутри списков (например, среди релизов) — вычищаем их везде.
 fn drop_nulls(v: Value) -> Value {
     match v {
-        Value::Array(a) => Value::Array(a.into_iter().filter(|x| !x.is_null()).map(drop_nulls).collect()),
+        Value::Array(a) => Value::Array(
+            a.into_iter()
+                .filter(|x| !x.is_null())
+                .map(drop_nulls)
+                .collect(),
+        ),
         Value::Object(o) => Value::Object(o.into_iter().map(|(k, v)| (k, drop_nulls(v))).collect()),
         x => x,
     }
@@ -178,8 +212,32 @@ fn drop_nulls(v: Value) -> Value {
 /// Строковый id из числа или строки (как `String(id)` в JS).
 /// Вместо JSON пришла веб-страница — это проверка защиты от ботов.
 fn looks_like_html(text: &str) -> bool {
-    let head = text.trim_start().get(..15).unwrap_or("").to_ascii_lowercase();
+    let head = text
+        .trim_start()
+        .get(..15)
+        .unwrap_or("")
+        .to_ascii_lowercase();
     head.starts_with("<!doctype html") || head.starts_with("<html")
+}
+
+/// Принимаем только адреса того же HTTPS-origin, которому можно отправить секреты Zvuk.
+/// Проверяется уже вычисленный Location, поэтому относительный редирект безопасен, а смена
+/// протокола, хоста, порта или добавление userinfo отклоняется до следующего HTTP-запроса.
+fn safe_redirect(current: &str, location: &str) -> ApiResult<String> {
+    let invalid = || {
+        ApiError::new("UNSAFE_REDIRECT", "Zvuk вернул небезопасное перенаправление. Запрос остановлен, данные авторизации не отправлены.")
+    };
+    let base = reqwest::Url::parse(current).map_err(|_| invalid())?;
+    let url = base.join(location).map_err(|_| invalid())?;
+    if url.scheme() != "https"
+        || url.host_str() != Some("zvuk.com")
+        || url.port_or_known_default() != Some(443)
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err(invalid());
+    }
+    Ok(url.to_string())
 }
 
 pub fn id_str(v: &Value) -> String {
@@ -192,7 +250,9 @@ pub fn id_str(v: &Value) -> String {
 }
 
 fn ids_of(v: &Value) -> Vec<String> {
-    v.as_array().map(|a| a.iter().map(id_str).filter(|s| !s.is_empty()).collect()).unwrap_or_default()
+    v.as_array()
+        .map(|a| a.iter().map(id_str).filter(|s| !s.is_empty()).collect())
+        .unwrap_or_default()
 }
 
 fn arr(v: &Value) -> Vec<Value> {
@@ -215,6 +275,15 @@ pub struct ZvukClient {
     jar: Mutex<BTreeMap<String, String>>,
     pace: Pace,
     cache: Mutex<HashMap<String, (Instant, Value)>>,
+    /// Версия сессии: ни кэш, ни ожидаемый ответ не пересекают смену аккаунта.
+    epoch: AtomicU64,
+    pending: Mutex<HashMap<String, watch::Receiver<Option<ApiResult>>>>,
+}
+
+static HTTP_SENT: AtomicU64 = AtomicU64::new(0);
+/// Только агрегированный счётчик: без URL, параметров, заголовков и содержимого ответов.
+pub fn http_sent() -> u64 {
+    HTTP_SENT.load(Ordering::Relaxed)
 }
 
 pub struct Profile {
@@ -234,7 +303,15 @@ impl ZvukClient {
             .timeout(Duration::from_secs(20))
             .build()
             .expect("http client");
-        Self { http, token: RwLock::new(None), jar: Mutex::new(BTreeMap::new()), pace: Pace::new(), cache: Mutex::new(HashMap::new()) }
+        Self {
+            http,
+            token: RwLock::new(None),
+            jar: Mutex::new(BTreeMap::new()),
+            pace: Pace::new(),
+            cache: Mutex::new(HashMap::new()),
+            epoch: AtomicU64::new(0),
+            pending: Mutex::new(HashMap::new()),
+        }
     }
 
     pub fn token(&self) -> Option<String> {
@@ -245,8 +322,11 @@ impl ZvukClient {
         let token = token.filter(|t| !t.is_empty());
         let mut cur = self.token.write().unwrap();
         if *cur != token {
-            // ответы другого аккаунта (или гостя) не должны попасть в новый
+            // Ответы другого аккаунта (или гостя) не должны попасть в новый.
+            // Получатели старых shared-запросов получат STALE, а не чужие данные.
+            self.epoch.fetch_add(1, Ordering::SeqCst);
             self.cache.lock().unwrap().clear();
+            self.pending.lock().unwrap().clear();
         }
         *cur = token;
     }
@@ -270,7 +350,11 @@ impl ZvukClient {
             c.retain(|_, (until, _)| *until > now);
             if c.len() >= CACHE_MAX {
                 // всё ещё полон — выкидываем то, что истечёт раньше всего
-                if let Some(k) = c.iter().min_by_key(|(_, (u, _))| *u).map(|(k, _)| k.clone()) {
+                if let Some(k) = c
+                    .iter()
+                    .min_by_key(|(_, (u, _))| *u)
+                    .map(|(k, _)| k.clone())
+                {
                     c.remove(&k);
                 }
             }
@@ -286,21 +370,35 @@ impl ZvukClient {
             let pair = c.split(';').next().unwrap_or("");
             if let Some(i) = pair.find('=') {
                 if i > 0 {
-                    jar.insert(pair[..i].trim().to_string(), pair[i + 1..].trim().to_string());
+                    jar.insert(
+                        pair[..i].trim().to_string(),
+                        pair[i + 1..].trim().to_string(),
+                    );
                 }
             }
         }
     }
 
     /// Запрос с повтором при перенаправлении: защита сайта ставит cookie и отправляет на тот же адрес.
-    async fn fetch(&self, method: &str, url: &str, body: Option<&str>, token: Option<&str>) -> ApiResult<(u16, String)> {
+    /// Токен и cookie никогда не покидают HTTPS-origin Zvuk.
+    async fn fetch(
+        &self,
+        method: &str,
+        url: &str,
+        body: Option<&str>,
+        token: Option<&str>,
+    ) -> ApiResult<(u16, String)> {
         let mut url = url.to_string();
         let _slot = self.pace.turn().await?;
         for step in 0..6 {
             if step > 0 {
                 self.pace.gap().await;
             }
-            let mut rq = if method == "POST" { self.http.post(&url) } else { self.http.get(&url) };
+            let mut rq = if method == "POST" {
+                self.http.post(&url)
+            } else {
+                self.http.get(&url)
+            };
             rq = rq
                 .header("User-Agent", user_agent())
                 .header("Accept", "application/json, text/plain, */*")
@@ -312,7 +410,10 @@ impl ZvukClient {
             }
             let cookie = {
                 let jar = self.jar.lock().unwrap();
-                jar.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("; ")
+                jar.iter()
+                    .map(|(k, v)| format!("{k}={v}"))
+                    .collect::<Vec<_>>()
+                    .join("; ")
             };
             if !cookie.is_empty() {
                 if let Ok(h) = HeaderValue::from_str(&cookie) {
@@ -320,19 +421,36 @@ impl ZvukClient {
                 }
             }
             if let Some(b) = body {
-                rq = rq.header("Content-Type", "application/json").body(b.to_string());
+                rq = rq
+                    .header("Content-Type", "application/json")
+                    .body(b.to_string());
             }
-            let res = rq.send().await.map_err(|e| ApiError::new("NETWORK", format!("Нет связи с Zvuk: {}", short_err(&e))))?;
+            HTTP_SENT.fetch_add(1, Ordering::Relaxed);
+            let res = rq.send().await.map_err(|e| {
+                ApiError::new("NETWORK", format!("Нет связи с Zvuk: {}", short_err(&e)))
+            })?;
             self.store_cookies(res.headers());
             let status = res.status().as_u16();
             if matches!(status, 301 | 302 | 303 | 307 | 308) {
-                if let Some(loc) = res.headers().get(LOCATION).and_then(|l| l.to_str().ok()) {
-                    url = reqwest::Url::parse(&url).and_then(|b| b.join(loc)).map(|u| u.to_string()).unwrap_or_else(|_| loc.to_string());
+                if let Some(loc) = res.headers().get(LOCATION) {
+                    let loc = loc.to_str().map_err(|_| {
+                        ApiError::new(
+                            "UNSAFE_REDIRECT",
+                            "Zvuk вернул нечитаемое перенаправление. Запрос остановлен.",
+                        )
+                    })?;
+                    url = safe_redirect(&url, loc)?;
                     continue;
                 }
             }
-            let retry_after = res.headers().get("retry-after").and_then(|v| v.to_str().ok()).and_then(|s| s.trim().parse::<u64>().ok());
-            let text = res.text().await.map_err(|e| ApiError::new("NETWORK", format!("Нет связи с Zvuk: {}", short_err(&e))))?;
+            let retry_after = res
+                .headers()
+                .get("retry-after")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.trim().parse::<u64>().ok());
+            let text = res.text().await.map_err(|e| {
+                ApiError::new("NETWORK", format!("Нет связи с Zvuk: {}", short_err(&e)))
+            })?;
             if status == 418 || status == 429 || looks_like_html(&text) {
                 self.pace.blocked(retry_after);
             } else if status < 400 {
@@ -348,41 +466,82 @@ impl ZvukClient {
             return Err(ApiError::new("BLOCKED", "Zvuk временно ограничил доступ (защита от ботов). Приложение сделает паузу — попробуйте через минуту."));
         }
         if status == 401 || status == 403 {
-            return Err(ApiError::new("UNAUTHORIZED", "Сессия Zvuk недействительна — войдите заново."));
+            return Err(ApiError::new(
+                "UNAUTHORIZED",
+                "Сессия Zvuk недействительна — войдите заново.",
+            ));
         }
-        let data: Value = serde_json::from_str(text).map_err(|_| ApiError::new("BAD_RESPONSE", format!("Неожиданный ответ Zvuk (HTTP {status})")))?;
+        let data: Value = serde_json::from_str(text).map_err(|_| {
+            ApiError::new(
+                "BAD_RESPONSE",
+                format!("Неожиданный ответ Zvuk (HTTP {status})"),
+            )
+        })?;
         if status >= 400 && data.get("errors").is_none() {
-            let msg = data.get("message").and_then(Value::as_str).map(String::from).unwrap_or_else(|| format!("Ошибка Zvuk (HTTP {status})"));
+            let msg = data
+                .get("message")
+                .and_then(Value::as_str)
+                .map(String::from)
+                .unwrap_or_else(|| format!("Ошибка Zvuk (HTTP {status})"));
             return Err(ApiError::new(&format!("HTTP_{status}"), msg));
         }
         Ok(data)
     }
 
     pub async fn gql(&self, operation: &str, query: &str, variables: Value) -> ApiResult<Value> {
-        let body = json!({ "operationName": operation, "query": query, "variables": variables }).to_string();
+        let body = json!({ "operationName": operation, "query": query, "variables": variables })
+            .to_string();
         let token = self.token();
-        let (status, text) = self.fetch("POST", GRAPHQL_URL, Some(&body), token.as_deref()).await?;
+        let (status, text) = self
+            .fetch("POST", GRAPHQL_URL, Some(&body), token.as_deref())
+            .await?;
         let mut data = Self::parse_json(status, &text)?;
-        if let Some(errs) = data.get("errors").and_then(Value::as_array).filter(|e| !e.is_empty()) {
-            let msg = errs.iter().filter_map(|e| e.get("message").and_then(Value::as_str)).collect::<Vec<_>>().join("; ");
+        if let Some(errs) = data
+            .get("errors")
+            .and_then(Value::as_array)
+            .filter(|e| !e.is_empty())
+        {
+            let msg = errs
+                .iter()
+                .filter_map(|e| e.get("message").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("; ");
             let unauth = errs.iter().any(|e| {
-                let m = e.get("message").and_then(Value::as_str).unwrap_or("").to_lowercase();
-                m.contains("unauth") || m.contains("forbidden") || m.contains("not authorized") || m.contains("auth")
-                    || e.pointer("/extensions/code").and_then(Value::as_str) == Some("UNAUTHENTICATED")
+                let m = e
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_lowercase();
+                m.contains("unauth")
+                    || m.contains("forbidden")
+                    || m.contains("not authorized")
+                    || m.contains("auth")
+                    || e.pointer("/extensions/code").and_then(Value::as_str)
+                        == Some("UNAUTHENTICATED")
             });
             let has_data = data.get("data").map(|d| !d.is_null()).unwrap_or(false);
             if !has_data || unauth {
-                return Err(ApiError::new(if unauth { "UNAUTHORIZED" } else { "GRAPHQL" }, msg));
+                return Err(ApiError::new(
+                    if unauth { "UNAUTHORIZED" } else { "GRAPHQL" },
+                    msg,
+                ));
             }
         }
         let d = data.get_mut("data").map(Value::take).unwrap_or(Value::Null);
         Ok(drop_nulls(if d.is_null() { json!({}) } else { d }))
     }
 
-    async fn tiny_with(&self, path: &str, params: &[(&str, &str)], token: Option<&str>) -> ApiResult<Value> {
+    async fn tiny_with(
+        &self,
+        path: &str,
+        params: &[(&str, &str)],
+        token: Option<&str>,
+    ) -> ApiResult<Value> {
         let mut url = format!("{TINY_URL}{path}");
         if !params.is_empty() {
-            let qs = url::form_urlencoded::Serializer::new(String::new()).extend_pairs(params).finish();
+            let qs = url::form_urlencoded::Serializer::new(String::new())
+                .extend_pairs(params)
+                .finish();
             url.push('?');
             url.push_str(&qs);
         }
@@ -402,20 +561,36 @@ impl ZvukClient {
     // ---------- Профиль и подписка ----------
     pub async fn anonymous_token(&self) -> ApiResult<Option<String>> {
         let r = self.tiny_with("/profile", &[], None).await?;
-        Ok(r.get("token").or_else(|| r.pointer("/profile/token")).and_then(Value::as_str).map(String::from))
+        Ok(r.get("token")
+            .or_else(|| r.pointer("/profile/token"))
+            .and_then(Value::as_str)
+            .map(String::from))
     }
 
     pub async fn profile_with(&self, token: Option<&str>) -> ApiResult<Profile> {
         let r = self.tiny_with("/profile", &[], token).await?;
         let p = r.get("profile").filter(|p| p.is_object()).unwrap_or(&r);
-        let s = |v: Option<&Value>| v.and_then(Value::as_str).filter(|s| !s.is_empty()).map(String::from);
-        let id = p.get("id").filter(|v| !v.is_null()).or_else(|| r.get("id")).map(id_str).unwrap_or_default();
+        let s = |v: Option<&Value>| {
+            v.and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+        };
+        let id = p
+            .get("id")
+            .filter(|v| !v.is_null())
+            .or_else(|| r.get("id"))
+            .map(id_str)
+            .unwrap_or_default();
         let image = match p.get("image") {
             Some(Value::Object(o)) => o.get("src").and_then(Value::as_str).map(String::from),
             Some(Value::String(x)) => Some(x.clone()),
             _ => None,
         };
-        let anon = r.get("is_anonymous").or_else(|| p.get("is_anonymous")).and_then(Value::as_bool).unwrap_or(false);
+        let anon = r
+            .get("is_anonymous")
+            .or_else(|| p.get("is_anonymous"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         Ok(Profile {
             id,
             name: s(p.get("name")).or_else(|| s(p.get("username"))),
@@ -453,10 +628,17 @@ impl ZvukClient {
             a = artist_short(),
             r = release_short()
         );
-        let d = self.gql("quickSearch", &q, json!({ "query": query, "limit": limit })).await?;
+        let d = self
+            .gql("quickSearch", &q, json!({ "query": query, "limit": limit }))
+            .await?;
         let items: Vec<Value> = arr(d.pointer("/quickSearch/content").unwrap_or(&Value::Null))
             .into_iter()
-            .filter(|x| matches!(x.get("__typename").and_then(Value::as_str), Some("Track" | "Artist" | "Release" | "Playlist")))
+            .filter(|x| {
+                matches!(
+                    x.get("__typename").and_then(Value::as_str),
+                    Some("Track" | "Artist" | "Release" | "Playlist")
+                )
+            })
             .collect();
         Ok(Value::Array(items))
     }
@@ -475,10 +657,18 @@ impl ZvukClient {
             a = artist_short(),
             r = release_short()
         );
-        let d = self.gql("search", &q, json!({ "query": query, "limit": limit })).await?;
+        let d = self
+            .gql("search", &q, json!({ "query": query, "limit": limit }))
+            .await?;
         let s = d.get("search").cloned().unwrap_or(Value::Null);
-        let items = |k: &str| Value::Array(arr(s.pointer(&format!("/{k}/items")).unwrap_or(&Value::Null)));
-        Ok(json!({ "tracks": items("tracks"), "artists": items("artists"), "releases": items("releases"), "playlists": items("playlists") }))
+        let items = |k: &str| {
+            Value::Array(arr(s
+                .pointer(&format!("/{k}/items"))
+                .unwrap_or(&Value::Null)))
+        };
+        Ok(
+            json!({ "tracks": items("tracks"), "artists": items("artists"), "releases": items("releases"), "playlists": items("playlists") }),
+        )
     }
 
     pub async fn autocomplete(&self, query: &str) -> ApiResult {
@@ -489,7 +679,9 @@ impl ZvukClient {
                 json!({ "query": query }),
             )
             .await?;
-        Ok(Value::Array(arr(d.pointer("/searchAutocomplete/content").unwrap_or(&Value::Null))))
+        Ok(Value::Array(arr(d
+            .pointer("/searchAutocomplete/content")
+            .unwrap_or(&Value::Null))))
     }
 
     // ---------- Треки ----------
@@ -498,15 +690,25 @@ impl ZvukClient {
         if list.is_empty() {
             return Ok(vec![]);
         }
-        let q = format!("query getTracks($ids: [ID!]!) {{ getTracks(ids: $ids) {{ {} }} }}", track());
-        let parts = try_join_all(list.chunks(100).map(|part| self.gql("getTracks", &q, json!({ "ids": part })))).await?;
+        let q = format!(
+            "query getTracks($ids: [ID!]!) {{ getTracks(ids: $ids) {{ {} }} }}",
+            track()
+        );
+        let parts = try_join_all(
+            list.chunks(100)
+                .map(|part| self.gql("getTracks", &q, json!({ "ids": part }))),
+        )
+        .await?;
         let mut by_id: HashMap<String, Value> = HashMap::new();
         for p in parts {
             for t in arr(p.get("getTracks").unwrap_or(&Value::Null)) {
                 by_id.insert(id_str(&t["id"]), t);
             }
         }
-        Ok(list.iter().filter_map(|id| by_id.get(id).cloned()).collect())
+        Ok(list
+            .iter()
+            .filter_map(|id| by_id.get(id).cloned())
+            .collect())
     }
 
     /// Ссылка на поток. quality: flac | high | mid. Возвращает лучшее доступное не выше запрошенного.
@@ -518,7 +720,10 @@ impl ZvukClient {
                 json!({ "ids": [track_id] }),
             )
             .await?;
-        let st = d.pointer("/mediaContents/0/stream").filter(|s| s.is_object()).ok_or_else(|| ApiError::new("NO_STREAM", "Трек недоступен для воспроизведения"))?;
+        let st = d
+            .pointer("/mediaContents/0/stream")
+            .filter(|s| s.is_object())
+            .ok_or_else(|| ApiError::new("NO_STREAM", "Трек недоступен для воспроизведения"))?;
         let order: &[&str] = match quality {
             "flac" => &["flac", "high", "mid"],
             "high" => &["high", "mid"],
@@ -528,16 +733,23 @@ impl ZvukClient {
             if let Some(url) = st.get(*q).and_then(Value::as_str).filter(|s| !s.is_empty()) {
                 let path = url.split('?').next().unwrap_or("");
                 let preview = path.ends_with("/preview");
-                return Ok(json!({ "url": url, "quality": q, "expire": st.get("expire").cloned().unwrap_or(Value::Null), "preview": preview }));
+                return Ok(
+                    json!({ "url": url, "quality": q, "expire": st.get("expire").cloned().unwrap_or(Value::Null), "preview": preview }),
+                );
             }
         }
-        Err(ApiError::new("NO_STREAM", "Для этого трека нет доступного потока"))
+        Err(ApiError::new(
+            "NO_STREAM",
+            "Для этого трека нет доступного потока",
+        ))
     }
 
     pub async fn get_lyrics(&self, track_id: &str) -> ApiResult {
         match self.tiny("/lyrics", &[("track_id", track_id)]).await {
             Ok(r) => {
-                let text = r.get("lyrics").filter(|l| !l.is_null() && l.as_str() != Some(""));
+                let text = r
+                    .get("lyrics")
+                    .filter(|l| !l.is_null() && l.as_str() != Some(""));
                 match text {
                     None => Ok(Value::Null),
                     Some(t) => Ok(json!({
@@ -554,8 +766,12 @@ impl ZvukClient {
 
     pub async fn get_related_tracks(&self, id: &str, limit: i64) -> ApiResult {
         let q = format!("query getRelatedTracks($id: ID!, $limit: Int) {{ relatedTracks(track_id: $id, limit: $limit) {{ {} }} }}", track());
-        let d = self.gql("getRelatedTracks", &q, json!({ "id": id, "limit": limit })).await?;
-        Ok(Value::Array(arr(d.get("relatedTracks").unwrap_or(&Value::Null))))
+        let d = self
+            .gql("getRelatedTracks", &q, json!({ "id": id, "limit": limit }))
+            .await?;
+        Ok(Value::Array(arr(d
+            .get("relatedTracks")
+            .unwrap_or(&Value::Null))))
     }
 
     // ---------- Релизы и исполнители ----------
@@ -598,18 +814,40 @@ impl ZvukClient {
     /// на стыке страниц треки повторяются, а часть пропадает.
     pub async fn get_artist_tracks(&self, id: &str, limit: i64) -> ApiResult {
         let q = format!("query getArtists($ids: [ID!]!, $limit: Int) {{ getArtists(ids: $ids) {{ id popularTracks(limit: $limit) {{ {} }} }} }}", track());
-        let d = self.gql("getArtists", &q, json!({ "ids": [id], "limit": limit.clamp(1, 500) })).await?;
+        let d = self
+            .gql(
+                "getArtists",
+                &q,
+                json!({ "ids": [id], "limit": limit.clamp(1, 500) }),
+            )
+            .await?;
         let mut seen = HashSet::new();
-        let list = arr(d.pointer("/getArtists/0/popularTracks").unwrap_or(&Value::Null)).into_iter().filter(|t| seen.insert(id_str(&t["id"]))).collect();
+        let list = arr(d
+            .pointer("/getArtists/0/popularTracks")
+            .unwrap_or(&Value::Null))
+        .into_iter()
+        .filter(|t| seen.insert(id_str(&t["id"])))
+        .collect();
         Ok(Value::Array(list))
     }
 
-    async fn short_list(&self, op: &str, field: &str, fields: &str, ids: &[String], size: usize) -> ApiResult<Vec<Value>> {
+    async fn short_list(
+        &self,
+        op: &str,
+        field: &str,
+        fields: &str,
+        ids: &[String],
+        size: usize,
+    ) -> ApiResult<Vec<Value>> {
         if ids.is_empty() {
             return Ok(vec![]);
         }
         let q = format!("query {op}($ids: [ID!]!) {{ {field}(ids: $ids) {{ {fields} }} }}");
-        let parts = try_join_all(ids.chunks(size).map(|part| self.gql(op, &q, json!({ "ids": part })))).await?;
+        let parts = try_join_all(
+            ids.chunks(size)
+                .map(|part| self.gql(op, &q, json!({ "ids": part }))),
+        )
+        .await?;
         let mut by_id: HashMap<String, Value> = HashMap::new();
         for p in parts {
             for r in arr(p.get(field).unwrap_or(&Value::Null)) {
@@ -620,22 +858,37 @@ impl ZvukClient {
     }
 
     pub async fn get_releases_short(&self, ids: &[String]) -> ApiResult {
-        Ok(Value::Array(self.short_list("getReleases", "getReleases", &release_short(), ids, 100).await?))
+        Ok(Value::Array(
+            self.short_list("getReleases", "getReleases", &release_short(), ids, 100)
+                .await?,
+        ))
     }
 
     pub async fn get_artists_short(&self, ids: &[String]) -> ApiResult {
-        Ok(Value::Array(self.short_list("getArtists", "getArtists", &artist_short(), ids, 100).await?))
+        Ok(Value::Array(
+            self.short_list("getArtists", "getArtists", &artist_short(), ids, 100)
+                .await?,
+        ))
     }
 
     // ---------- Плейлисты ----------
     pub async fn get_playlists_short(&self, ids: &[String]) -> ApiResult {
         let fields = format!("{PLAYLIST_SHORT} tracks {{ id }}");
-        let raw = self.short_list("getPlaylists", "getPlaylists", &fields, ids, 50).await?;
+        let raw = self
+            .short_list("getPlaylists", "getPlaylists", &fields, ids, 50)
+            .await?;
         let mut out: Vec<Value> = Vec::with_capacity(raw.len());
         let mut need: Vec<(usize, Vec<String>)> = vec![]; // плейлист без обложки → id первых треков
         for mut r in raw {
-            let tids: Vec<String> = arr(r.get("tracks").unwrap_or(&Value::Null)).iter().map(|t| id_str(&t["id"])).collect();
-            let has_cover = r.pointer("/coverV1/src").and_then(Value::as_str).map(|s| !s.is_empty()).unwrap_or(false);
+            let tids: Vec<String> = arr(r.get("tracks").unwrap_or(&Value::Null))
+                .iter()
+                .map(|t| id_str(&t["id"]))
+                .collect();
+            let has_cover = r
+                .pointer("/coverV1/src")
+                .and_then(Value::as_str)
+                .map(|s| !s.is_empty())
+                .unwrap_or(false);
             if let Some(o) = r.as_object_mut() {
                 o.remove("tracks");
                 o.insert("trackCount".into(), json!(tids.len()));
@@ -657,11 +910,16 @@ impl ZvukClient {
                 }
             }
             if let Ok(tracks) = self.get_tracks(&all).await {
-                let by_id: HashMap<String, &Value> = tracks.iter().map(|t| (id_str(&t["id"]), t)).collect();
+                let by_id: HashMap<String, &Value> =
+                    tracks.iter().map(|t| (id_str(&t["id"]), t)).collect();
                 for (i, tids) in need {
                     let mut srcs: Vec<String> = vec![];
                     for id in tids {
-                        if let Some(s) = by_id.get(&id).and_then(|t| t.pointer("/release/image/src")).and_then(Value::as_str) {
+                        if let Some(s) = by_id
+                            .get(&id)
+                            .and_then(|t| t.pointer("/release/image/src"))
+                            .and_then(Value::as_str)
+                        {
                             if !srcs.iter().any(|x| x == s) {
                                 srcs.push(s.to_string());
                             }
@@ -682,8 +940,13 @@ impl ZvukClient {
     pub async fn get_playlist(&self, id: &str) -> ApiResult {
         let q = format!("query getPlaylists($ids: [ID!]!) {{ getPlaylists(ids: $ids) {{ {PLAYLIST_SHORT} updated tracks {{ id }} }} }}");
         let d = self.gql("getPlaylists", &q, json!({ "ids": [id] })).await?;
-        let Some(mut pl) = d.pointer("/getPlaylists/0").cloned() else { return Ok(Value::Null) };
-        let ids: Vec<String> = arr(pl.get("tracks").unwrap_or(&Value::Null)).iter().map(|t| id_str(&t["id"])).collect();
+        let Some(mut pl) = d.pointer("/getPlaylists/0").cloned() else {
+            return Ok(Value::Null);
+        };
+        let ids: Vec<String> = arr(pl.get("tracks").unwrap_or(&Value::Null))
+            .iter()
+            .map(|t| id_str(&t["id"]))
+            .collect();
         let tracks = self.get_tracks(&ids).await?;
         let mut mosaic: Vec<String> = vec![];
         for t in &tracks {
@@ -705,7 +968,12 @@ impl ZvukClient {
     }
 
     fn items(track_ids: &[String]) -> Value {
-        Value::Array(track_ids.iter().map(|id| json!({ "type": "track", "item_id": id })).collect())
+        Value::Array(
+            track_ids
+                .iter()
+                .map(|id| json!({ "type": "track", "item_id": id }))
+                .collect(),
+        )
     }
 
     pub async fn create_playlist(&self, name: &str, track_ids: &[String]) -> ApiResult {
@@ -716,7 +984,10 @@ impl ZvukClient {
                 json!({ "name": name, "items": Self::items(track_ids) }),
             )
             .await?;
-        Ok(json!(d.pointer("/playlist/create").map(id_str).unwrap_or_default()))
+        Ok(json!(d
+            .pointer("/playlist/create")
+            .map(id_str)
+            .unwrap_or_default()))
     }
 
     pub async fn add_tracks_to_playlist(&self, pid: &str, track_ids: &[String]) -> ApiResult {
@@ -733,7 +1004,10 @@ impl ZvukClient {
     pub async fn update_playlist(&self, pid: &str, opts: &Value) -> ApiResult {
         let ids = ids_of(opts.get("trackIds").unwrap_or(&Value::Null));
         let name = opts.get("name").and_then(Value::as_str).unwrap_or("");
-        let is_public = opts.get("isPublic").map(|v| v.as_bool().unwrap_or(!v.is_null() && v != &json!(0))).unwrap_or(false);
+        let is_public = opts
+            .get("isPublic")
+            .map(|v| v.as_bool().unwrap_or(!v.is_null() && v != &json!(0)))
+            .unwrap_or(false);
         self.gql(
             "updataPlaylist",
             "mutation updataPlaylist($id: ID!, $items: [PlaylistItem!]!, $isPublic: Boolean!, $name: String!) {
@@ -755,8 +1029,12 @@ impl ZvukClient {
     }
 
     pub async fn delete_playlist(&self, pid: &str) -> ApiResult {
-        self.gql("deletePlaylist", "mutation deletePlaylist($id: ID!) { playlist { delete(id: $id) } }", json!({ "id": pid }))
-            .await?;
+        self.gql(
+            "deletePlaylist",
+            "mutation deletePlaylist($id: ID!) { playlist { delete(id: $id) } }",
+            json!({ "id": pid }),
+        )
+        .await?;
         Ok(json!(true))
     }
 
@@ -772,8 +1050,15 @@ impl ZvukClient {
             )
             .await?;
         let c = d.get("collection").cloned().unwrap_or(Value::Null);
-        let ids = |k: &str| json!(arr(c.get(k).unwrap_or(&Value::Null)).iter().map(|x| id_str(&x["id"])).collect::<Vec<_>>());
-        Ok(json!({ "tracks": ids("tracks"), "releases": ids("releases"), "artists": ids("artists"), "playlists": ids("playlists") }))
+        let ids = |k: &str| {
+            json!(arr(c.get(k).unwrap_or(&Value::Null))
+                .iter()
+                .map(|x| id_str(&x["id"]))
+                .collect::<Vec<_>>())
+        };
+        Ok(
+            json!({ "tracks": ids("tracks"), "releases": ids("releases"), "artists": ids("artists"), "playlists": ids("playlists") }),
+        )
     }
 
     pub async fn get_liked_track_ids(&self) -> ApiResult {
@@ -785,7 +1070,12 @@ impl ZvukClient {
                 json!({ "orderBy": "dateAdded", "orderDirection": "desc" }),
             )
             .await?;
-        Ok(json!(arr(d.pointer("/collection/tracks").unwrap_or(&Value::Null)).iter().map(|t| id_str(&t["id"])).collect::<Vec<_>>()))
+        Ok(json!(arr(d
+            .pointer("/collection/tracks")
+            .unwrap_or(&Value::Null))
+        .iter()
+        .map(|t| id_str(&t["id"]))
+        .collect::<Vec<_>>()))
     }
 
     pub async fn like(&self, kind: &Value, id: &str, add: bool) -> ApiResult {
@@ -820,12 +1110,24 @@ impl ZvukClient {
         if energy.is_some() || fun.is_some() {
             options.insert(
                 "mood".into(),
-                json!(format!("energy:{},fun:{}", js_num(energy.unwrap_or(&Value::Null), 0.5), js_num(fun.unwrap_or(&Value::Null), 0.5))),
+                json!(format!(
+                    "energy:{},fun:{}",
+                    js_num(energy.unwrap_or(&Value::Null), 0.5),
+                    js_num(fun.unwrap_or(&Value::Null), 0.5)
+                )),
             );
         }
         let genres = arr(opts.get("genres").unwrap_or(&Value::Null));
         if !genres.is_empty() {
-            options.insert("genre".into(), Value::Array(genres.into_iter().map(|name| json!({ "name": name, "type": "LVL1" })).collect()));
+            options.insert(
+                "genre".into(),
+                Value::Array(
+                    genres
+                        .into_iter()
+                        .map(|name| json!({ "name": name, "type": "LVL1" }))
+                        .collect(),
+                ),
+            );
         }
         if let Some(p) = opts.get("popularity").filter(|v| !v.is_null()) {
             options.insert("popular".into(), p.clone());
@@ -848,8 +1150,16 @@ impl ZvukClient {
         personalWaveContent(first: $first, options: $options, waveSrc: $waveSrc) {{ {} }} }}",
             track()
         );
-        let d = self.gql("getPersonalWave", &q, json!({ "first": count, "options": options, "waveSrc": "AMAZME" })).await?;
-        Ok(Value::Array(arr(d.get("personalWaveContent").unwrap_or(&Value::Null))))
+        let d = self
+            .gql(
+                "getPersonalWave",
+                &q,
+                json!({ "first": count, "options": options, "waveSrc": "AMAZME" }),
+            )
+            .await?;
+        Ok(Value::Array(arr(d
+            .get("personalWaveContent")
+            .unwrap_or(&Value::Null))))
     }
 
     pub async fn get_waves(&self, ids: &[String]) -> ApiResult {
@@ -860,7 +1170,9 @@ impl ZvukClient {
                 json!({ "ids": ids }),
             )
             .await?;
-        Ok(Value::Array(arr(d.pointer("/wave/waves").unwrap_or(&Value::Null))))
+        Ok(Value::Array(arr(d
+            .pointer("/wave/waves")
+            .unwrap_or(&Value::Null))))
     }
 
     pub async fn wave_content(&self, wave_id: &str) -> ApiResult {
@@ -870,7 +1182,13 @@ impl ZvukClient {
             track()
         );
         let localtime = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-        let d = self.gql("waveContent", &q, json!({ "contentInput": { "waveId": wave_id, "localtime": localtime } })).await?;
+        let d = self
+            .gql(
+                "waveContent",
+                &q,
+                json!({ "contentInput": { "waveId": wave_id, "localtime": localtime } }),
+            )
+            .await?;
         Ok(Value::Array(
             arr(d.pointer("/wave/waveContent").unwrap_or(&Value::Null))
                 .into_iter()
@@ -887,7 +1205,13 @@ impl ZvukClient {
         recommenderRadio(onEntity: {{ id: $id, type: $type }}, first: $limit, cursor: $cursor) {{ cursor tracks {{ {} }} }} }}",
             track()
         );
-        let d = self.gql("getRadioByEntity", &q, json!({ "id": id, "type": kind, "limit": limit, "cursor": cursor })).await?;
+        let d = self
+            .gql(
+                "getRadioByEntity",
+                &q,
+                json!({ "id": id, "type": kind, "limit": limit, "cursor": cursor }),
+            )
+            .await?;
         Ok(json!({
             "cursor": d.pointer("/recommenderRadio/cursor").filter(|c| !c.is_null()).cloned().unwrap_or(json!(0)),
             "tracks": arr(d.pointer("/recommenderRadio/tracks").unwrap_or(&Value::Null)),
@@ -908,7 +1232,11 @@ impl ZvukClient {
             a = artist_short(),
             r = release_short()
         );
-        let pages = if pages.is_array() { pages.clone() } else { json!([1]) };
+        let pages = if pages.is_array() {
+            pages.clone()
+        } else {
+            json!([1])
+        };
         let d = self
             .gql("getMusicRecommendations", &q, json!({ "contentType": "Music", "itemType": ["Artist", "Release", "Playlist"], "pages": pages }))
             .await?;
@@ -924,13 +1252,21 @@ impl ZvukClient {
     }
 
     pub async fn synthesis_playlists(&self) -> ApiResult {
-        let ids: Vec<String> = SYNTHESIS_PLAYLIST_IDS.iter().map(|s| s.to_string()).collect();
+        let ids: Vec<String> = SYNTHESIS_PLAYLIST_IDS
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         Ok(self.get_playlists_short(&ids).await.unwrap_or(json!([])))
     }
 
     /// Подборки редакции (тот же список, что в разделе «Подборки» веб-плеера).
     async fn editorial_playlists(&self) -> ApiResult {
-        let r = self.tiny("/grid/content", &[("name", "editorial_playlist"), ("ranker_enabled", "true")]).await?;
+        let r = self
+            .tiny(
+                "/grid/content",
+                &[("name", "editorial_playlist"), ("ranker_enabled", "true")],
+            )
+            .await?;
         let ids: Vec<String> = arr(r.pointer("/page/data").unwrap_or(&Value::Null))
             .iter()
             .filter(|x| x.get("type").and_then(Value::as_str) == Some("playlist"))
@@ -943,10 +1279,22 @@ impl ZvukClient {
 
     /// Всё для вкладки «Популярное» одним вызовом: треки «Топ 100», чарты, хиты по десятилетиям и подборки.
     pub async fn popular(&self) -> ApiResult {
-        let shelf_ids: Vec<String> = CHART_PLAYLIST_IDS.iter().chain(DECADE_PLAYLIST_IDS.iter()).map(|s| s.to_string()).collect();
-        let (top, shelves, editorial) = futures::join!(self.get_playlist(CHART_PLAYLIST_ID), self.get_playlists_short(&shelf_ids), self.editorial_playlists());
+        let shelf_ids: Vec<String> = CHART_PLAYLIST_IDS
+            .iter()
+            .chain(DECADE_PLAYLIST_IDS.iter())
+            .map(|s| s.to_string())
+            .collect();
+        let (top, shelves, editorial) = futures::join!(
+            self.get_playlist(CHART_PLAYLIST_ID),
+            self.get_playlists_short(&shelf_ids),
+            self.editorial_playlists()
+        );
         let shelves = arr(&shelves?);
-        let pick = |ids: &[&str]| -> Vec<Value> { ids.iter().filter_map(|id| shelves.iter().find(|p| id_str(&p["id"]) == *id).cloned()).collect() };
+        let pick = |ids: &[&str]| -> Vec<Value> {
+            ids.iter()
+                .filter_map(|id| shelves.iter().find(|p| id_str(&p["id"]) == *id).cloned())
+                .collect()
+        };
         let top = top?;
         Ok(json!({
             "top": {
@@ -968,7 +1316,13 @@ impl ZvukClient {
         lastListeningDttm mediaContent {{ __typename ... on Track {{ {} }} }} }} }}",
             track()
         );
-        let d = self.gql("listeningHistory", &q, json!({ "limit": limit, "offset": 0 })).await?;
+        let d = self
+            .gql(
+                "listeningHistory",
+                &q,
+                json!({ "limit": limit, "offset": 0 }),
+            )
+            .await?;
         Ok(Value::Array(
             arr(d.get("listeningHistory").unwrap_or(&Value::Null))
                 .into_iter()
@@ -995,7 +1349,10 @@ impl ZvukClient {
             arr(d.get("listeningRecentV1").unwrap_or(&Value::Null))
                 .into_iter()
                 .filter_map(|x| x.get("mediaContent").cloned())
-                .filter(|c| c.get("__typename").and_then(Value::as_str).is_some() && c.get("id").map(|i| !i.is_null()).unwrap_or(false))
+                .filter(|c| {
+                    c.get("__typename").and_then(Value::as_str).is_some()
+                        && c.get("id").map(|i| !i.is_null()).unwrap_or(false)
+                })
                 .collect(),
         ))
     }
@@ -1003,23 +1360,91 @@ impl ZvukClient {
     /// Вызов метода по имени — так же, как его вызывает интерфейс (`zvuk.call('getTracks', ids)`).
     /// Ответы справочных методов какое-то время берутся из памяти (см. `cache_ttl`).
     pub async fn call(&self, method: &str, args: &[Value]) -> ApiResult {
+        self.call_dispatch(method, args, || self.call_api(method, args))
+            .await
+    }
+
+    /// Только чтение: одинаковые одновременные вызовы обслуживает один HTTP-запрос.
+    /// Список не совпадает с TTL-кэшем: коллекция и история не устаревают в памяти,
+    /// но их дубли при быстром переходе между страницами всё равно объединяются.
+    async fn call_dispatch<F, Fut>(&self, method: &str, args: &[Value], fetch: F) -> ApiResult
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = ApiResult>,
+    {
         let ttl = cache_ttl(method);
-        let key = ttl.map(|_| format!("{method}\u{1}{}", Value::Array(args.to_vec())));
-        if let Some(v) = key.as_deref().and_then(|k| self.cache_get(k)) {
-            return Ok(v);
+        let shared = ttl.is_some()
+            || matches!(
+                method,
+                "getCollectionIds"
+                    | "getLikedTrackIds"
+                    | "listeningHistory"
+                    | "recentlyPlayed"
+                    | "getSubscription"
+            );
+        let epoch = self.epoch.load(Ordering::Acquire);
+        let cache_key = format!("{method}\u{1}{}", Value::Array(args.to_vec()));
+        let key = format!("{epoch}\u{1}{cache_key}");
+        if ttl.is_some() {
+            if let Some(v) = self.cache_get(&cache_key) {
+                return Ok(v);
+            }
         }
-        let r = self.call_api(method, args).await?;
-        if let (Some(k), Some(ttl)) = (key, ttl) {
+
+        let mut sender = None;
+        if shared {
+            let waiter = {
+                let mut pending = self.pending.lock().unwrap();
+                if let Some(rx) = pending.get(&key) {
+                    Some(rx.clone())
+                } else {
+                    let (tx, rx) = watch::channel(None);
+                    pending.insert(key.clone(), rx);
+                    sender = Some(tx);
+                    None
+                }
+            };
+            if let Some(mut rx) = waiter {
+                if rx.wait_for(|r| r.is_some()).await.is_ok()
+                    && self.epoch.load(Ordering::Acquire) == epoch
+                {
+                    return rx.borrow().clone().unwrap_or_else(|| {
+                        Err(ApiError::new(
+                            "NETWORK",
+                            "Общий запрос Zvuk завершился без ответа",
+                        ))
+                    });
+                }
+                return Err(ApiError::new(
+                    "STALE",
+                    "Запрос отменён при смене сессии. Повторите действие.",
+                ));
+            }
+        }
+
+        let r = fetch().await;
+        if let Some(tx) = sender {
+            self.pending.lock().unwrap().remove(&key);
+            let _ = tx.send(Some(r.clone()));
+        }
+        if self.epoch.load(Ordering::Acquire) != epoch {
+            return Err(ApiError::new("STALE", "Ответ прежней сессии отброшен."));
+        }
+        if let (Ok(v), Some(ttl)) = (&r, ttl) {
             // превью (30 с без подписки) не кэшируем: после входа должен прийти полный трек
-            let preview = method == "getStream" && r.get("preview").and_then(Value::as_bool).unwrap_or(false);
-            if !preview && !r.is_null() {
-                self.cache_put(k, &r, ttl);
+            let preview =
+                method == "getStream" && v.get("preview").and_then(Value::as_bool).unwrap_or(false);
+            if !preview && !v.is_null() {
+                self.cache_put(cache_key, v, ttl);
             }
         }
         if drops_playlists(method) {
-            self.cache.lock().unwrap().retain(|k, _| !k.starts_with("getPlaylist"));
+            self.cache
+                .lock()
+                .unwrap()
+                .retain(|k, _| !k.starts_with("getPlaylist"));
         }
-        Ok(r)
+        r
     }
 
     async fn call_api(&self, method: &str, args: &[Value]) -> ApiResult {
@@ -1065,6 +1490,143 @@ impl ZvukClient {
             "recentlyPlayed" => self.recently_played(n(0, 20)).await,
             "getSubscription" => self.get_subscription().await,
             _ => Err(ApiError::new("BAD_METHOD", method.to_string())),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::future::join_all;
+    use std::sync::Arc;
+
+    #[test]
+    fn redirects_stay_on_zvuk_https() {
+        assert_eq!(
+            safe_redirect(GRAPHQL_URL, "/api/tiny").unwrap(),
+            "https://zvuk.com/api/tiny"
+        );
+        for location in [
+            "https://evil.example/collect",
+            "http://zvuk.com/api/tiny",
+            "https://zvuk.com.evil.example/",
+            "https://user:password@zvuk.com/",
+            "https://zvuk.com:444/",
+            "http://[invalid",
+        ] {
+            assert_eq!(
+                safe_redirect(GRAPHQL_URL, location).unwrap_err().code,
+                "UNSAFE_REDIRECT"
+            );
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn concurrent_reads_share_one_dispatch_and_cache_success() {
+        let client = ZvukClient::new();
+        let calls = AtomicU32::new(0);
+        let args = vec![json!(["42"])];
+        let results = join_all((0..12).map(|_| {
+            client.call_dispatch("getTracks", &args, || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                Ok(json!([{ "id": "42" }]))
+            })
+        }))
+        .await;
+        assert!(results.iter().all(Result::is_ok));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        client
+            .call_dispatch("getTracks", &args, || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(json!([]))
+            })
+            .await
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(client.pending.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn collection_is_shared_but_not_cached() {
+        let client = ZvukClient::new();
+        let calls = AtomicU32::new(0);
+        let both = join_all((0..2).map(|_| {
+            client.call_dispatch("getCollectionIds", &[], || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                Ok(json!({ "tracks": [] }))
+            })
+        }))
+        .await;
+        assert!(both.iter().all(Result::is_ok));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        client
+            .call_dispatch("getCollectionIds", &[], || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(json!({ "tracks": [] }))
+            })
+            .await
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn failures_are_shared_once_and_not_cached() {
+        let client = ZvukClient::new();
+        let calls = AtomicU32::new(0);
+        let args = vec![json!("test")];
+        let results = join_all((0..5).map(|_| {
+            client.call_dispatch("search", &args, || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                Err(ApiError::new("NETWORK", "synthetic failure"))
+            })
+        }))
+        .await;
+        assert!(results
+            .iter()
+            .all(|r| r.as_ref().is_err_and(|e| e.code == "NETWORK")));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(client.cache.lock().unwrap().is_empty());
+        assert!(client.pending.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn account_change_rejects_old_pending_response() {
+        let client = Arc::new(ZvukClient::new());
+        let task = {
+            let client = client.clone();
+            tokio::spawn(async move {
+                client
+                    .call_dispatch("getCollectionIds", &[], || async {
+                        tokio::time::sleep(Duration::from_millis(40)).await;
+                        Ok(json!({ "tracks": ["old-session"] }))
+                    })
+                    .await
+            })
+        };
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        client.set_token(Some("synthetic-new-session".into()));
+        assert_eq!(task.await.unwrap().unwrap_err().code, "STALE");
+        assert!(client.cache.lock().unwrap().is_empty());
+        assert!(client.pending.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn streams_and_mutations_are_never_shared() {
+        let client = ZvukClient::new();
+        for method in ["personalWave", "waveContent", "radio", "like"] {
+            let calls = AtomicU32::new(0);
+            let _ = join_all((0..2).map(|_| {
+                client.call_dispatch(method, &[], || async {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                    Ok(json!([]))
+                })
+            }))
+            .await;
+            assert_eq!(calls.load(Ordering::SeqCst), 2, "{method}");
         }
     }
 }

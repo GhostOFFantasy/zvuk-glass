@@ -25,6 +25,7 @@
     stream: null,
     events: new EventTarget(),
     _loadToken: 0,
+    _sourceSeq: 0,
     _retried: false,
     _failStreak: 0,
     _fetching: false,
@@ -81,6 +82,7 @@
     playList(tracks, start = 0, source = { kind: 'list', title: '' }) {
       tracks = (tracks || []).filter(Boolean);
       if (!tracks.length) return;
+      this._sourceSeq++;
       this.source = source;
       this.original = null;
       if (this.shuffle && !source.fetchMore) {
@@ -98,6 +100,7 @@
 
     /** Загрузить без автозапуска (восстановление после перезапуска). */
     cue(tracks, index = 0, position = 0, source = null) {
+      this._sourceSeq++;
       this.queue = tracks.filter(Boolean);
       this.source = source || { kind: 'list', title: '' };
       if (!this.queue.length) return;
@@ -142,6 +145,7 @@
 
     /** Бесконечный источник: fetchMore() должен возвращать новую порцию треков. */
     async startEndless(source, initial = null) {
+      const seq = ++this._sourceSeq;
       this.source = source;
       this.original = null;
       this.queue = [];
@@ -149,14 +153,15 @@
       this.emit('loading', true);
       try {
         const first = initial && initial.length ? initial : await source.fetchMore();
+        if (seq !== this._sourceSeq || source !== this.source) return;
         if (!first || !first.length) throw new Error('Пусто');
         this.queue = this._dedupe(first);
         this._load(0, true);
         this.emit('queue');
       } catch (e) {
-        toast('Не удалось запустить: ' + e.message, { error: true });
+        if (seq === this._sourceSeq) toast('Не удалось запустить: ' + e.message, { error: true });
       } finally {
-        this.emit('loading', false);
+        if (seq === this._sourceSeq) this.emit('loading', false);
       }
     },
 
@@ -174,12 +179,13 @@
     async _ensureBuffer() {
       if (!this.endless || this._fetching) return;
       if (this.queue.length - this.index > 3) return;
+      const seq = this._sourceSeq;
       this._fetching = true;
       const src = this.source;
       try {
         for (let tries = 0; tries < 3; tries++) {
           const more = this._dedupe(await src.fetchMore());
-          if (src !== this.source) return;
+          if (seq !== this._sourceSeq || src !== this.source) return;
           if (more.length) {
             this.queue.push(...more);
             this.emit('queue');
@@ -187,9 +193,9 @@
           }
         }
       } catch (e) {
-        console.warn('fetchMore failed', e);
+        if (seq === this._sourceSeq) console.warn('fetchMore failed', e);
       } finally {
-        this._fetching = false;
+        if (seq === this._sourceSeq) this._fetching = false;
       }
     },
 
@@ -291,6 +297,7 @@
       if (!isFinite(audio.duration)) return;
       audio.currentTime = Math.max(0, Math.min(audio.duration - 0.25, sec));
       this._time();
+      this.emit('seek', { time: audio.currentTime });
     },
     seekRel(d) {
       this.seek(audio.currentTime + d);

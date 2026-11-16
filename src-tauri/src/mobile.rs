@@ -27,7 +27,8 @@ pub fn plugin() -> TauriPlugin<Wry> {
 /// Вызов метода Kotlin-плагина. Блокирует поток до ответа — не вызывать из главного потока.
 pub fn call(app: &AppHandle, method: &str, payload: Value) -> Result<Value, String> {
     let z = app.try_state::<Zg>().ok_or("плагин не готов")?;
-    z.0.run_mobile_plugin::<Value>(method, payload).map_err(|e| e.to_string())
+    z.0.run_mobile_plugin::<Value>(method, payload)
+        .map_err(|e| e.to_string())
 }
 
 /// То же в фоне: ответ не нужен.
@@ -44,7 +45,11 @@ pub fn install_apk(app: &AppHandle, path: &std::path::Path) -> bool {
 
 /// Kotlin: `ZgNative.command("toggle" | "next" | "prev" | "play" | "pause" | "seek:<сек>")`.
 #[no_mangle]
-pub extern "system" fn Java_com_zvukglass_app_ZgNative_command(mut env: jni::JNIEnv, _cls: jni::objects::JClass, cmd: jni::objects::JString) {
+pub extern "system" fn Java_com_zvukglass_app_ZgNative_command(
+    mut env: jni::JNIEnv,
+    _cls: jni::objects::JClass,
+    cmd: jni::objects::JString,
+) {
     let cmd: String = env.get_string(&cmd).map(|s| s.into()).unwrap_or_default();
     if let Some(app) = APP.get() {
         let _ = app.emit("media:command", cmd);

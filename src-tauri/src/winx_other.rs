@@ -18,7 +18,11 @@ pub fn install_hooks(_app: &AppHandle, _win: &WebviewWindow) {}
 
 pub fn make_invisible(_win: &WebviewWindow) {}
 
-pub fn capture_png(_win: &WebviewWindow, _out: std::path::PathBuf, done: impl FnOnce(Result<(), String>) + Send + 'static) {
+pub fn capture_png(
+    _win: &WebviewWindow,
+    _out: std::path::PathBuf,
+    done: impl FnOnce(Result<(), String>) + Send + 'static,
+) {
     done(Err("недоступно".into()))
 }
 

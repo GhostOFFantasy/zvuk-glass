@@ -45,20 +45,29 @@
     const on = Clip.auto;
     const s = Clip.sync;
     const a = Clip.autoInfo;
+    const mode = Clip.syncMode;
     let line = '';
     if (on) {
       if (s.state === 'run') line = `<div class="vz-sync run"><i></i>${esc(s.message)}</div>`;
       else if (s.state === 'fail') line = `<div class="vz-sync err">${esc(s.message)}</div>`;
       else if (s.state === 'wait') line = `<div class="vz-sync">${esc(s.message)}</div>`;
-      else if (a) line = `<div class="vz-sync ok">${icon('check')}Подстроено по звуку · точность около 0,03 с</div>`;
-      else line = '<div class="vz-sync">Для этого трека подстройки ещё нет — нажмите ↻. Это 5–10 секунд: звук ненадолго пойдёт из клипа (иногда из середины песни), потом трек начнётся сначала. Другие звуки на компьютере лучше приглушить.</div>';
+      else if (a && mode === 'locked') line = `<div class="vz-sync ok">${icon('check')}Ручная поправка сохранена · автоматические коррекции выключены</div>`;
+      else if (a) line = `<div class="vz-sync ok">${icon('check')}Подтверждено на ${a.shots || 2} фрагментах · уверенность ${Math.round((a.confidence || 0) * 100)}%${a.rate && a.rate !== 1 ? ` · темп ${a.rate.toFixed(3)}×` : ''}</div>`;
+      else line = '<div class="vz-sync">Нажмите ↻: приложение сравнит несколько фрагментов по звуку. Если версия клипа отличается, случайный сдвиг не применяется.</div>';
     }
     const busy = s.state === 'run';
     return `<div class="vz-auto">
-      <div class="vz-auto-row"><button class="switch${on ? ' on' : ''}" data-vclip="auto"${busy ? ' disabled' : ''}></button>
-        <span>Автосинхронизация<small>губы в такт: сдвиг по звуку клипа</small></span>
+      <div class="vz-auto-row"><button class="switch${on ? ' on' : ''}" data-vclip="auto" title="${busy ? 'Остановить подстройку' : 'Автосинхронизация'}"></button>
+        <span>Автосинхронизация<small>сопоставление музыки, без микрофона</small></span>
         ${on && !busy ? `<button class="btn small" data-vclip="recal" title="${a ? 'Измерить заново' : 'Подстроить'}">${icon('refresh')}</button>` : ''}</div>
+      <div class="vz-q-opts vz-sync-modes" aria-label="Режим синхронизации">
+        ${[['auto', 'Авто'], ['locked', 'Фиксация'], ['manual', 'Вручную']].map(([id, name]) => `<button class="vz-qb${mode === id ? ' on' : ''}" data-vclip="mode-${id}"${id === 'locked' && !a ? ' disabled' : ''}>${name}</button>`).join('')}
+      </div>
       ${line}
+      <div class="vz-prefs">
+        <label class="vz-check"><button class="switch${Clip.pref('clipRestart') ? ' on' : ''}" data-vpref="clipRestart" aria-label="В начало после синхронизации" aria-pressed="${Clip.pref('clipRestart')}"></button><span>В начало после синхронизации</span></label>
+        <label class="vz-check"><button class="switch${Clip.pref('inkEnabled') ? ' on' : ''}" data-vpref="inkEnabled" aria-label="Гашение засветов" aria-pressed="${Clip.pref('inkEnabled')}"></button><span>Гашение засветов</span></label>
+      </div>
     </div>`;
   }
 
@@ -84,10 +93,10 @@
         ${st === 'nokey' ? `<button class="btn small primary" data-vclip="settings">${icon('settings')}Ключ</button>` : ''}
       </div>
       ${st === 'ok' ? autoBlock() : ''}
-      ${st === 'ok' ? `<div class="vz-offset${Clip.auto ? ' locked' : ''}" title="${Clip.auto ? 'Недоступно, пока включена автосинхронизация' : 'Если клип опережает или отстаёт от музыки'}"><span>Сдвиг</span>
-        <button class="btn small" data-vclip="minus"${Clip.auto ? ' disabled' : ''}>−0,5 с</button><b>${off > 0 ? '+' : ''}${off.toFixed(Clip.auto && Clip.autoInfo ? 2 : 1)} с</b><button class="btn small" data-vclip="plus"${Clip.auto ? ' disabled' : ''}>+0,5 с</button></div>` : ''}
+      ${st === 'ok' ? `<div class="vz-offset" title="При автоматическом режиме ручная поправка сохраняется и блокирует коррекции"><span>Сдвиг</span>
+        <button class="btn small" data-vclip="minus">−0,5 с</button><b>${off > 0 ? '+' : ''}${off.toFixed(Clip.auto && Clip.autoInfo ? 2 : 1)} с</b><button class="btn small" data-vclip="plus">+0,5 с</button></div>` : ''}
       <div class="vz-q">
-        <div class="vz-q-head"><span>Качество клипа</span>${Clip.actualQuality ? `<small title="Что YouTube показывает сейчас">сейчас ${esc(Clip.actualQuality)}</small>` : ''}</div>
+        <div class="vz-q-head"><span>Качество клипа</span><small title="Запрошенное и фактически полученное от YouTube качество">запрошено ${esc(Clip.QLIST.find(([id]) => id === Clip.quality)?.[1] || 'Авто')}${Clip.actualQuality ? ` · сейчас ${esc(Clip.actualQuality)}` : ''}</small></div>
         <div class="vz-q-opts">${Clip.QLIST.map(([id, label]) => `<button class="vz-qb${Clip.quality === id ? ' on' : ''}" data-vclipq="${id}">${label}</button>`).join('')}</div>
       </div>
     </div>`;
@@ -198,6 +207,12 @@
 
       panel.addEventListener('click', async (e) => {
         const s = settings();
+        const pref = e.target.closest('[data-vpref]');
+        if (pref) {
+          Clip.setPreference(pref.dataset.vpref, !Clip.pref(pref.dataset.vpref));
+          renderPanel();
+          return;
+        }
         const qb = e.target.closest('[data-vclipq]');
         if (qb) {
           if (qb.dataset.vclipq !== Clip.quality) {
@@ -215,9 +230,10 @@
             if (Clip.auto && Player.current) {
               // включили — сразу подстраиваем текущий трек (если для него ещё нет замера)
               Clip.requestSync(Player.current.id);
-              if (!Clip.autoInfo) toast('Автосинхронизация: звук ненадолго пойдёт из клипа, потом трек начнётся сначала', { iconName: 'sparkle', ms: 3200 });
+              if (!Clip.autoInfo) toast(`Автосинхронизация: звук ненадолго пойдёт из клипа${Clip.pref('clipRestart') ? ', потом трек начнётся сначала' : ', позиция трека сохранится'}`, { iconName: 'sparkle', ms: 3200 });
             }
-          } else if (a === 'recal') Clip.calibrate(true);
+          } else if (a.startsWith('mode-')) await Clip.setSyncMode(a.slice(5));
+          else if (a === 'recal') Clip.calibrate(true);
           else if (a === 'next') await Clip.next();
           else if (a === 'research') await Clip.resolve(true);
           else if (a === 'minus') await Clip.shift(-0.5);

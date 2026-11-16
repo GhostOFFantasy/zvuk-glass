@@ -25,7 +25,12 @@ pub fn packaged() -> bool {
 
 impl Updates {
     pub fn new(test: bool) -> Self {
-        Self { status: Mutex::new(json!({ "state": "idle" })), ready: Mutex::new(None), busy: Mutex::new(false), test }
+        Self {
+            status: Mutex::new(json!({ "state": "idle" })),
+            ready: Mutex::new(None),
+            busy: Mutex::new(false),
+            test,
+        }
     }
 
     pub fn state(&self, app: &AppHandle) -> Value {
@@ -56,7 +61,10 @@ impl Updates {
         }
         {
             let mut busy = self.busy.lock().unwrap();
-            let st = self.status.lock().unwrap()["state"].as_str().unwrap_or("").to_string();
+            let st = self.status.lock().unwrap()["state"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
             if *busy || st == "ready" {
                 return self.state(app);
             }
@@ -73,12 +81,22 @@ impl Updates {
 
     async fn run(self: &Arc<Self>, app: &AppHandle) -> Result<(), String> {
         let updater = app.updater().map_err(|e| friendly(&e.to_string()))?;
-        let Some(update) = updater.check().await.map_err(|e| friendly(&e.to_string()))? else {
-            self.send(app, json!({ "state": "none", "checkedAt": crate::clips::now_ms() }));
+        let Some(update) = updater
+            .check()
+            .await
+            .map_err(|e| friendly(&e.to_string()))?
+        else {
+            self.send(
+                app,
+                json!({ "state": "none", "checkedAt": crate::clips::now_ms() }),
+            );
             return Ok(());
         };
         let version = update.version.clone();
-        self.send(app, json!({ "state": "downloading", "version": version, "percent": 0 }));
+        self.send(
+            app,
+            json!({ "state": "downloading", "version": version, "percent": 0 }),
+        );
         let mut got: u64 = 0;
         let mut last = -1i64;
         let me = self.clone();
@@ -92,7 +110,10 @@ impl Updates {
                         let pct = (got * 100 / t) as i64;
                         if pct != last {
                             last = pct;
-                            me.send(&app2, json!({ "state": "downloading", "version": v2, "percent": pct }));
+                            me.send(
+                                &app2,
+                                json!({ "state": "downloading", "version": v2, "percent": pct }),
+                            );
                         }
                     }
                 },
@@ -102,7 +123,10 @@ impl Updates {
             .map_err(|e| friendly(&e.to_string()))?;
         let notes = update.body.clone().unwrap_or_default();
         *self.ready.lock().unwrap() = Some((update, bytes));
-        self.send(app, json!({ "state": "ready", "version": version, "notes": notes }));
+        self.send(
+            app,
+            json!({ "state": "ready", "version": version, "notes": notes }),
+        );
         Ok(())
     }
 
@@ -111,7 +135,9 @@ impl Updates {
         if self.test {
             return false;
         }
-        let Some((update, bytes)) = self.ready.lock().unwrap().take() else { return false };
+        let Some((update, bytes)) = self.ready.lock().unwrap().take() else {
+            return false;
+        };
         let update = update.restart_after_install(restart);
         update.install(bytes).is_ok()
     }
@@ -141,10 +167,23 @@ pub fn first_check(screenshot: bool) -> Duration {
 
 fn friendly(m: &str) -> String {
     let l = m.to_lowercase();
-    if ["dns", "connect", "timed out", "timeout", "unreachable", "network"].iter().any(|w| l.contains(w)) {
+    if [
+        "dns",
+        "connect",
+        "timed out",
+        "timeout",
+        "unreachable",
+        "network",
+    ]
+    .iter()
+    .any(|w| l.contains(w))
+    {
         return "Нет связи с GitHub".into();
     }
-    if l.contains("404") || l.contains("not found") || l.contains("could not fetch a valid release json") {
+    if l.contains("404")
+        || l.contains("not found")
+        || l.contains("could not fetch a valid release json")
+    {
         return "На GitHub пока нет опубликованных версий".into();
     }
     if l.contains("rate limit") || l.contains("403") {
@@ -153,5 +192,10 @@ fn friendly(m: &str) -> String {
     if l.contains("signature") {
         return "Подпись обновления не совпала — оно не будет установлено".into();
     }
-    m.lines().next().unwrap_or("Неизвестная ошибка").chars().take(160).collect()
+    m.lines()
+        .next()
+        .unwrap_or("Неизвестная ошибка")
+        .chars()
+        .take(160)
+        .collect()
 }

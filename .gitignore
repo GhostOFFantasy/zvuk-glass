@@ -13,3 +13,10 @@ screenshots/
 *.jks
 *.keystore
 keystore.properties
+*.properties
+.env.*
+!.env.example
+
+# локальные результаты проверок и сборочные материалы
+verification/
+deliverables/

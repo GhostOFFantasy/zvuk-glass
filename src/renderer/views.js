@@ -139,41 +139,59 @@
     const pop = POPS.find((m) => m.id === w.pop && m.id !== 'any');
     if (pop) parts.push(pop.label.toLowerCase());
     if (w.genres && w.genres.length) parts.push(GENRES.filter((g) => w.genres.includes(g[0])).map((g) => g[1].toLowerCase()).join(', '));
-    return parts.length ? 'Настроено: ' + parts.join(' · ') : 'Бесконечный поток треков, подобранных под ваш вкус';
+    return parts.length ? 'Настроено: ' + parts.join(' · ') : 'Персональный поток треков на вашей орбите';
   }
 
   const wavePlaying = () => Player.source?.kind === 'wave' && Player.playing;
-  const orbHtml = () =>
-    `<button class="wave-orb${wavePlaying() ? ' playing' : ''}" data-act="wave-toggle" id="waveOrb" title="Моя волна"><div class="core"></div><div class="shell"></div>${icon(wavePlaying() ? 'pause' : 'play')}</button>`;
+  const portalHtml = () =>
+    `<button class="wv-play${wavePlaying() ? ' playing' : ''}" data-act="wave-toggle" id="waveOrb" title="Музыкальная орбита — играть / пауза" aria-label="Музыкальная орбита — играть или пауза">${icon(wavePlaying() ? 'pause' : 'play')}</button>`;
 
-  /** Кольцо-визуализатор вокруг кнопки: живёт под музыку, только когда играет волна. */
-  function attachRing(canvas, inner) {
+  /** Бесконечность и фон всей сцены рисуются одним холстом и одним общим циклом Viz. */
+  function attachCosmos(canvas, pointer) {
     if (!canvas) return;
-    Viz.attach(canvas, {
-      style: 'orbit',
-      inner,
+    const handle = Viz.attach(canvas, {
+      style: localStorage.getItem('zg.waveScene') === 'rings' ? 'rings' : 'tide',
       idle: true,
-      sensitivity: 1.15,
+      sensitivity: 1.25,
       liveIf: () => Player.source?.kind === 'wave',
-      fps: window.ZG_MOBILE ? 30 : 40,
+      pointer,
+      seekEl: canvas.parentElement.querySelector('.wv-ring-seek'),
+      fps: 60,
       maxDpr: 1.5,
+      centerFn: (el) => {
+        const r = el.getBoundingClientRect();
+        const play = el.parentElement.querySelector('.wv-play, .home-wave-play');
+        if (!play) return { x: r.width * 0.72, y: r.height * 0.5, r: 52 };
+        const p = play.getBoundingClientRect();
+        return { x: p.left + p.width / 2 - r.left, y: p.top + p.height / 2 - r.top, r: p.width / 2 };
+      },
       onFrame: (V) => {
         const hero = canvas.closest('.wv-hero');
-        if (hero) hero.style.setProperty('--beat', (wavePlaying() ? V.bass * 0.6 + V.beat * 0.6 : 0).toFixed(3));
+        if (!hero) return;
+        hero.style.setProperty('--beat', (wavePlaying() ? V.bass * 0.6 + V.beat * 0.6 : 0).toFixed(3));
+        hero.style.setProperty('--energy', (wavePlaying() ? V.level : 0).toFixed(3));
       },
     });
+    canvas._cosmos = handle;
+    canvas.dataset.scene = localStorage.getItem('zg.waveScene') === 'rings' ? 'rings' : 'tide';
+    return handle;
   }
 
   function waveHero() {
     const w = App.settings.wave || {};
-    return `<div class="wave-hero glass panel liquid">
-      <div class="orb-wrap"><canvas id="homeRing"></canvas>${orbHtml()}</div>
+    const sceneLabel = localStorage.getItem('zg.waveScene') === 'rings' ? 'Кольца Сатурна' : 'Орбитальный прилив';
+    return `<div class="wave-hero home-wave glass panel liquid">
+      <canvas class="home-wave-cosmos" id="homeRing" aria-hidden="true"></canvas>
+      <div class="wv-ring-seek" id="homeRingSeek" role="slider" tabindex="-1" aria-label="Позиция трека на кольце" aria-valuemin="0" aria-valuenow="0" aria-disabled="true" title="Нажмите на кольцо для перемотки"></div>
       <div class="wave-text">
-        <h2>Моя волна</h2>
+        <div class="home-wave-kicker">${icon('wave')}Орбитальный поток</div>
+        <h2>Музыкальная орбита</h2>
         <p id="waveSummary">${esc(waveSummary())}</p>
         <div class="chips">${MOODS.map((m) => `<button class="chip${(w.mood || 'any') === m.id ? ' on' : ''}" data-act="wave-set" data-key="mood" data-val="${m.id}">${m.label}</button>`).join('')}
           <button class="chip" data-act="nav" data-view="wave">${icon('settings')}Настроить</button></div>
       </div>
+      <button class="home-wave-play${wavePlaying() ? ' playing' : ''}" data-act="wave-toggle" id="waveOrb" title="Музыкальная орбита — играть / пауза" aria-label="Музыкальная орбита — играть или пауза">${icon(wavePlaying() ? 'pause' : 'play')}</button>
+      <div class="home-wave-signature" aria-hidden="true">${sceneLabel}</div>
     </div>`;
   }
 
@@ -186,14 +204,18 @@
         <button class="icon-btn like-btn${liked ? ' liked' : ''}" data-act="like" data-type="track" data-id="${esc(t.id)}" title="Нравится">${icon(liked ? 'heartFill' : 'heart')}</button>
         <button class="icon-btn" data-act="next" title="Дальше">${icon('next')}</button></div>`;
     }
-    return `<div class="wv-hint">${icon('sparkle')}Нажмите на кнопку — поток подстроится под ваш вкус и настроение</div>`;
+    return `<div class="wv-hint">${icon('sparkle')}Запустите орбиту — поток подстроится под ваш вкус и настроение</div>`;
   }
 
   const Views = {};
 
   Views.home = async (view) => {
     const nm = App.settings.profileLocal?.name || App.profile?.name;
-    view.innerHTML = `<h1 class="greet">${greeting()}${nm ? ', ' + esc(nm) : ''}</h1>
+    view.innerHTML = `<header class="home-heading">
+        <div><div class="page-kicker"><span class="signal-dot"></span>Персональная обсерватория</div>
+          <h1 class="greet">${greeting()}${nm ? ', ' + esc(nm) : ''}</h1></div>
+        <div class="home-heading-note"><span>Ваша музыка</span><i></i><span>Новые открытия</span></div>
+      </header>
       ${waveHero()}
       <div id="h-synth"></div>
       <div id="h-recent">${skeletonShelf('Недавнее')}</div>
@@ -201,7 +223,10 @@
       <div id="h-art"></div>
       <div id="h-waves">${skeletonShelf('Волны')}</div>
       <div id="h-hist"></div>`;
-    attachRing(view.querySelector('#homeRing'), 88);
+    const homeCalm = Custom.s.reduceMotion || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const homeCosmos = attachCosmos(view.querySelector('#homeRing'), { x: 0, y: 0, tx: 0, ty: 0 });
+    // В спокойном режиме оставляем один готовый статический кадр, а не пустой холст.
+    if (homeCalm && homeCosmos) requestAnimationFrame(() => requestAnimationFrame(() => homeCosmos.stop()));
     const fill = async (id, fn) => {
       const el = view.querySelector('#' + id);
       try {
@@ -302,36 +327,91 @@
     if (open) box.closest('.section').scrollIntoView({ block: 'start', behavior: 'smooth' });
   };
 
-  // ---------- Моя волна ----------
+  // ---------- Музыкальная орбита ----------
   Views.wave = async (view) => {
     const w = App.settings.wave || {};
+    const mood = MOODS.find((m) => m.id === (w.mood || 'any')) || MOODS[0];
+    const moodNotes = {
+      any: 'Доверьтесь музыкальному потоку',
+      energetic: 'Темп, драйв и энергия',
+      fun: 'Светлые треки и хороший настрой',
+      calm: 'Мягкое звучание без спешки',
+      sad: 'Тихие эмоции и атмосфера',
+    };
+    const sceneMode = localStorage.getItem('zg.waveScene') === 'rings' ? 'rings' : 'tide';
     const pills = (key, list, cur) =>
-      `<div class="opt-pills">${list.map((o) => `<button class="opt-pill${(cur || 'any') === o.id ? ' on' : ''}" data-act="wave-set" data-key="${key}" data-val="${o.id}">${icon(o.icon)}${o.label}</button>`).join('')}</div>`;
+      `<div class="opt-pills">${list.map((o) => `<button class="opt-pill${(cur || 'any') === o.id ? ' on' : ''}" data-act="wave-set" data-key="${key}" data-val="${o.id}" aria-pressed="${(cur || 'any') === o.id}">${icon(o.icon)}<span>${o.label}</span></button>`).join('')}</div>`;
     view.innerHTML = `
-      <section class="wv-hero glass panel">
-        <div class="wv-aurora"><i></i><i></i><i></i></div>
-        <div class="wv-orb"><canvas class="wv-ring" id="waveRing"></canvas>${orbHtml()}</div>
-        <div class="wv-text">
-          <div class="wv-kicker">${icon('wave')}Персональный поток</div>
-          <h1 class="wv-title">Моя волна</h1>
+      <section class="wv-hero glass panel" style="--mood-a:${mood.c[0]};--mood-b:${mood.c[1]}">
+        <button class="wv-focus-btn" id="waveFocusBtn" data-act="wave-focus" title="Режим погружения (Esc — выход)">${icon('fullscreen')}<span>Погрузиться</span></button>
+        <button class="wv-scene-btn" id="waveSceneBtn" data-act="wave-scene" aria-pressed="${sceneMode === 'rings'}" title="Сменить орбитальную тему">${icon('album')}<span>${sceneMode === 'rings' ? 'Кольца Сатурна' : 'Орбитальный прилив'}</span></button>
+        <div class="wv-aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+        <canvas class="wv-cosmos" id="waveCosmos" aria-hidden="true"></canvas>
+        <div class="wv-ring-seek" id="waveRingSeek" role="slider" tabindex="-1" aria-label="Позиция трека на кольце" aria-valuemin="0" aria-valuenow="0" aria-disabled="true" title="Нажмите на кольцо для перемотки"></div>
+        <div class="wv-vignette" aria-hidden="true"></div>
+        <div class="wv-shard s1" aria-hidden="true"></div><div class="wv-shard s2" aria-hidden="true"></div><div class="wv-shard s3" aria-hidden="true"></div>
+        <div class="wv-copy">
+          <div class="wv-kicker"><span class="wv-live-dot"></span>Орбитальный эфир</div>
+          <h1 class="wv-title">Музыкальная <span>орбита</span></h1>
           <p class="wv-sub" id="waveSummary">${esc(waveSummary())}</p>
+          <div class="wv-mood-note" id="waveMoodNote">${icon(mood.icon)}<span>${moodNotes[mood.id]}</span></div>
           <div id="wvNowSlot">${waveNowHtml()}</div>
         </div>
+        <div class="wv-portal">
+          ${portalHtml()}
+          <div class="wv-portal-label"><span></span>${sceneMode === 'rings' ? 'Кольца Сатурна' : 'Орбитальный прилив'}<span></span></div>
+          <div class="wv-portal-sub">Центр — старт / пауза · кольцо — путь трека</div>
+          <div class="wv-orbit-time" aria-hidden="true"><span data-ring-current>0:00</span><i></i><span data-ring-duration>0:00</span></div>
+        </div>
       </section>
-      <section class="wv-grid">
-        <div class="wv-card glass wide"><h3>Настроение</h3>
-          <div class="mood-tiles">${MOODS.map((m) => `<button class="mood${(w.mood || 'any') === m.id ? ' on' : ''}" style="--m1:${m.c[0]};--m2:${m.c[1]}" data-act="wave-set" data-key="mood" data-val="${m.id}">${icon(m.icon)}<b>${m.label}</b></button>`).join('')}</div>
+      <section class="wv-console glass">
+        <div class="wv-console-head">
+          <div><span class="wv-section-kicker">Пульт потока</span><h2>Соберите свою частоту</h2></div>
+          <p>Поток подстроится автоматически</p>
         </div>
-        <div class="wv-card glass"><h3>Язык</h3>${pills('lang', LANGS, w.lang)}</div>
-        <div class="wv-card glass"><h3>Характер</h3>${pills('pop', POPS, w.pop)}</div>
-        <div class="wv-card glass wide"><h3>Жанры
-            <button class="more${(w.genres || []).length ? '' : ' hidden'}" data-act="wave-genre" data-val="__clear" id="genreClear" style="text-transform:none;letter-spacing:0;color:var(--text-2);font-weight:600">Сбросить</button></h3>
-          <div class="chips">${GENRES.map(([id, label]) => `<button class="chip${(w.genres || []).includes(id) ? ' on' : ''}" data-act="wave-genre" data-val="${id}">${label}</button>`).join('')}</div>
+        <div class="mood-tiles">${MOODS.map((m) => `<button class="mood${(w.mood || 'any') === m.id ? ' on' : ''}" style="--m1:${m.c[0]};--m2:${m.c[1]}" data-act="wave-set" data-key="mood" data-val="${m.id}" aria-pressed="${(w.mood || 'any') === m.id}" title="${moodNotes[m.id]}">
+          <span class="mood-icon">${icon(m.icon)}</span><span class="mood-copy"><b>${m.label}</b><small>${moodNotes[m.id]}</small></span><span class="mood-check">${icon('check')}</span>
+        </button>`).join('')}</div>
+        <div class="wv-tune-grid">
+          <section class="wv-tune-block"><h3>${icon('globe')}Язык звучания</h3>${pills('lang', LANGS, w.lang)}</section>
+          <section class="wv-tune-block"><h3>${icon('compass')}Характер открытий</h3>${pills('pop', POPS, w.pop)}</section>
         </div>
+        <section class="wv-genres">
+          <div class="wv-genre-head"><h3>${icon('note')}Жанровый спектр</h3><div class="wv-genre-tools"><span id="genreCount">${(w.genres || []).length ? `Выбрано: ${(w.genres || []).length}` : 'Все жанры'}</span>
+            <button class="more${(w.genres || []).length ? '' : ' hidden'}" data-act="wave-genre" data-val="__clear" id="genreClear">Сбросить</button></div></div>
+          <div class="chips">${GENRES.map(([id, label]) => `<button class="chip${(w.genres || []).includes(id) ? ' on' : ''}" data-act="wave-genre" data-val="${id}" aria-pressed="${(w.genres || []).includes(id)}">${label}</button>`).join('')}</div>
+        </section>
       </section>
       <div id="waveNow"></div>
       <div id="waveEditorial">${skeletonShelf('Волны по жанрам и настроениям')}</div>`;
-    attachRing(view.querySelector('#waveRing'), 90);
+    const calm = Custom.s.reduceMotion || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const pointer = { x: 0, y: 0, tx: 0, ty: 0 };
+    const cosmos = attachCosmos(view.querySelector('#waveCosmos'), pointer);
+    if (calm && cosmos) requestAnimationFrame(() => requestAnimationFrame(() => cosmos.stop()));
+    const hero = view.querySelector('.wv-hero');
+    if (!calm) {
+      let px = 0;
+      let py = 0;
+      let raf = 0;
+      const paint = () => {
+        raf = 0;
+        if (!hero.isConnected) return;
+        pointer.tx = px;
+        pointer.ty = py;
+        hero.style.setProperty('--px', px.toFixed(3));
+        hero.style.setProperty('--py', py.toFixed(3));
+      };
+      hero.addEventListener('pointermove', (e) => {
+        const r = hero.getBoundingClientRect();
+        px = (e.clientX - r.left) / r.width - 0.5;
+        py = (e.clientY - r.top) / r.height - 0.5;
+        if (!raf) raf = requestAnimationFrame(paint);
+      });
+      hero.addEventListener('pointerleave', () => {
+        px = py = 0;
+        if (!raf) raf = requestAnimationFrame(paint);
+      });
+    }
     Views._waveNow(view);
     try {
       const waves = await api('getWaves', ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16']);
@@ -341,6 +421,29 @@
       const el = view.querySelector('#waveEditorial');
       if (el) el.innerHTML = '';
     }
+  };
+  Views._waveTune = (w) => {
+    const mood = MOODS.find((m) => m.id === (w.mood || 'any')) || MOODS[0];
+    const hero = $('.wv-hero');
+    if (hero) {
+      hero.style.setProperty('--mood-a', mood.c[0]);
+      hero.style.setProperty('--mood-b', mood.c[1]);
+    }
+    const note = $('#waveMoodNote');
+    if (note) {
+      const text = {
+        any: 'Доверьтесь музыкальному потоку',
+        energetic: 'Темп, драйв и энергия',
+        fun: 'Светлые треки и хороший настрой',
+        calm: 'Мягкое звучание без спешки',
+        sad: 'Тихие эмоции и атмосфера',
+      }[mood.id];
+      note.innerHTML = `${icon(mood.icon)}<span>${text}</span>`;
+    }
+    const count = $('#genreCount');
+    if (count) count.textContent = (w.genres || []).length ? `Выбрано: ${(w.genres || []).length}` : 'Все жанры';
+    $$('[data-act="wave-set"]').forEach((b) => b.setAttribute('aria-pressed', String((w[b.dataset.key] || 'any') === b.dataset.val)));
+    $$('[data-act="wave-genre"]').forEach((b) => b.dataset.val !== '__clear' && b.setAttribute('aria-pressed', String((w.genres || []).includes(b.dataset.val))));
   };
   Views._waveNow = (view = document.getElementById('view')) => {
     const slot = view.querySelector('#wvNowSlot');
@@ -353,7 +456,7 @@
     }
     const upcoming = Player.queue.slice(Math.max(0, Player.index), Player.index + 8);
     const listId = registerList(upcoming, null);
-    el.innerHTML = `<section class="section"><div class="section-head"><h2>Сейчас в потоке · ${esc(Player.source.title || '')}</h2></div>
+    el.innerHTML = `<section class="section"><div class="section-head"><h2>Сейчас на орбите · ${esc(Player.source.title || '')}</h2></div>
       <div class="tracks">${upcoming.map((t, i) => trackRow(t, i, listId, { num: () => (i === 0 ? '▶' : i) })).join('')}</div></section>`;
     el.querySelectorAll('.tr').forEach((row, i) => (row.dataset.queueIdx = Player.index + i));
   };
@@ -958,11 +1061,18 @@
 
         <div class="set-title">Клипы с YouTube</div>
         <div class="set-card glass" id="ytCard"><div class="muted small">Загрузка…</div></div>
+        ${window.ZG_MOBILE ? '' : `<div class="set-card glass" id="clipPrefs">
+          <h3>Синхронизация и читаемость</h3>
+          ${row('В начало после синхронизации', 'После удачного замера запускать трек сначала. Выключите, чтобы сохранять текущую позицию.', `<button class="switch${Clip.pref('clipRestart') ? ' on' : ''}" data-vpref="clipRestart" aria-label="В начало после синхронизации" aria-pressed="${Clip.pref('clipRestart')}"></button>`)}
+          ${row('Гашение засветов', 'Подбирать цвет интерфейса по яркости клипа, в том числе для отдельных частей букв. Выключение снижает нагрузку.', `<button class="switch${Clip.pref('inkEnabled') ? ' on' : ''}" data-vpref="inkEnabled" aria-label="Гашение засветов" aria-pressed="${Clip.pref('inkEnabled')}"></button>`)}
+        </div>`}
 
         <div class="set-title">Стиль интерфейса</div>
         <div class="set-card glass">
           <div class="design-tiles">
-            <button class="design-tile${s.design !== 'classic' ? ' on' : ''}" data-cseg="design" data-val="glass">
+            <button class="design-tile${s.design === 'orbit' ? ' on' : ''}" data-cseg="design" data-val="orbit">
+              <div class="pv orbit"><i></i><i></i><i></i></div><b>Орбитальная</b><span>Глубокий космос, холодное стекло и орбитальные линии</span></button>
+            <button class="design-tile${s.design === 'glass' ? ' on' : ''}" data-cseg="design" data-val="glass">
               <div class="pv glassy"><i></i><i></i><i></i></div><b>Жидкое стекло</b><span>Полупрозрачные панели, размытие и блики</span></button>
             <button class="design-tile${s.design === 'classic' ? ' on' : ''}" data-cseg="design" data-val="classic">
               <div class="pv flat"><i></i><i></i><i></i></div><b>Обычный</b><span>Плотные тёмные панели, как в Spotify. Работает быстрее.</span></button>
@@ -1041,6 +1151,20 @@
         </div>
       </div>`;
 
+    // Настройки — рабочая панель, а не узкая лента: группируем разделы один раз,
+    // сохраняя исходную разметку контролов и единый набор обработчиков ниже.
+    const settingsRoot = view.querySelector('.settings');
+    settingsRoot.querySelector(':scope > .set-card')?.classList.add('settings-account');
+    const sectionIds = ['sound', 'clips', 'design', 'seek', 'color', 'wallpaper', 'glass', 'interface', 'help'];
+    for (const title of [...settingsRoot.querySelectorAll(':scope > .set-title')]) {
+      const group = document.createElement('section');
+      group.className = 'settings-group';
+      group.dataset.group = sectionIds.shift() || 'other';
+      title.before(group);
+      group.append(title);
+      while (group.nextElementSibling?.classList.contains('set-card')) group.append(group.nextElementSibling);
+    }
+
     view.querySelectorAll('.range').forEach(updateRangeFill);
     api('getSubscription')
       .then((sub) => {
@@ -1108,6 +1232,21 @@
       renderYt();
     });
     renderYt();
+    const clipPrefs = view.querySelector('#clipPrefs');
+    if (clipPrefs) {
+      const syncPrefs = () => clipPrefs.querySelectorAll('[data-vpref]').forEach((b) => {
+        const on = Clip.pref(b.dataset.vpref);
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-pressed', String(on));
+      });
+      clipPrefs.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-vpref]');
+        if (!b) return;
+        Clip.setPreference(b.dataset.vpref, !Clip.pref(b.dataset.vpref));
+        syncPrefs();
+      });
+      const offPrefs = Clip.onChange(() => view.isConnected ? syncPrefs() : offPrefs());
+    }
 
     // ---------- О программе и обновления ----------
     const renderAbout = async () => {
@@ -1118,7 +1257,8 @@
       const btn = (act, label, ic, primary) => `<button class="btn small${primary ? ' primary' : ''}" data-updact="${act}">${icon(ic)}${label}</button>`;
       let line = '';
       let ctrl = '';
-      if (st.packaged === false) line = 'Версия для разработки — обновления работают в установленном приложении';
+      if (st.portable) line = 'Переносная тестовая копия — обновления и установка отключены';
+      else if (st.packaged === false) line = 'Версия для разработки — обновления работают в установленном приложении';
       else if (st.state === 'checking') (line = 'Проверяем обновления…'), (ctrl = `<button class="btn small" disabled>${icon('refresh')}Проверка…</button>`);
       else if (st.state === 'downloading') line = `Скачивается версия ${esc(st.version || '')}${st.percent ? ` — ${st.percent}%` : '…'}`;
       else if (st.state === 'ready')

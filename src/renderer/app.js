@@ -24,6 +24,7 @@
   // ======================================================================
   async function boot() {
     hydrateIcons();
+    Clip.bindPlayer();
     App.settings = await window.zvuk.settings.get();
     App.settings.viz = { style: 'bars', color: 'accent', sensitivity: 1, dim: 35, pulse: true, syncVideo: true, ...(App.settings.viz || {}) };
     App.settings.profileLocal = App.settings.profileLocal || {};
@@ -268,7 +269,7 @@
   function renderProfileChip() {
     const name = App.displayName();
     const av = App.avatarUrl(64);
-    $('#profileChip').innerHTML = `<span class="ava">${av ? `<img src="${esc(av)}" alt="">` : esc(name[0])}</span><span>${esc(name)}</span>`;
+    $('#profileChip').innerHTML = `<span class="profile-copy"><b>${esc(name)}</b><small>Личное пространство</small></span><span class="ava">${av ? `<img src="${esc(av)}" alt="">` : esc(name[0])}</span>`;
   }
   App.renderProfileChip = renderProfileChip;
 
@@ -470,6 +471,35 @@
   // ======================================================================
   const NAV_MAIN = ['home', 'wave', 'search', 'liked', 'albums', 'artists', 'playlists', 'history'];
 
+  function setWaveFocus(on) {
+    document.body.classList.toggle('wave-focus', on);
+    const hero = $('.wv-hero');
+    const canvas = $('#waveCosmos');
+    const preferred = localStorage.getItem('zg.waveScene') === 'rings' ? 'rings' : 'tide';
+    if (canvas?._cosmos) {
+      canvas._cosmos.set({ style: on ? 'solar' : preferred });
+      canvas.dataset.scene = on ? 'solar' : preferred;
+    }
+    const sceneLabel = $('.wv-portal-label');
+    if (sceneLabel) sceneLabel.innerHTML = `<span></span>${on ? 'Музыкальная вселенная' : preferred === 'rings' ? 'Кольца Сатурна' : 'Орбитальный прилив'}<span></span>`;
+    const sceneSub = $('.wv-portal-sub');
+    if (sceneSub) sceneSub.textContent = on ? 'Центр — старт / пауза · кольцо — путь трека' : 'Центр — старт / пауза · кольцо — путь трека';
+    const btn = $('#waveFocusBtn');
+    if (btn) {
+      btn.innerHTML = `${icon(on ? 'close' : 'fullscreen')}<span>${on ? 'Выйти' : 'Погрузиться'}</span>`;
+      btn.title = on ? 'Выйти из полноэкранного погружения (Esc)' : 'Звёздная система на весь экран (Esc — выход)';
+      btn.setAttribute('aria-pressed', String(on));
+    }
+    if (on) {
+      $('#scroller').scrollTop = 0;
+      // Полноэкранный режим запускается непосредственно действием пользователя.
+      if (hero && document.fullscreenElement !== hero) hero.requestFullscreen?.().catch(() => {});
+    } else if (hero && document.fullscreenElement === hero) document.exitFullscreen?.().catch(() => {});
+  }
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && document.body.classList.contains('wave-focus')) setWaveFocus(false);
+  });
+
   function navigate(view, p = {}, { replace = false } = {}) {
     if (!Views[view]) view = 'home';
     // Переход к странице всегда показывает её: полноэкранный плеер сворачивается
@@ -515,9 +545,12 @@
     const view = document.createElement('div');
     view.className = 'view' + (keepScroll ? '' : ' enter');
     view.id = 'view';
+    view.dataset.page = App.route.view;
+    document.body.dataset.route = App.route.view;
     old.replaceWith(view);
     sc.scrollTop = keepScroll ? prevScroll : 0;
     const { view: v, params: p } = App.route;
+    if (v !== 'wave') setWaveFocus(false);
     updateNav();
     if (v !== 'release' && v !== 'artist' && v !== 'playlist') App.setPageTheme(null);
     $('#btnBack').disabled = !App.history.length;
@@ -707,7 +740,7 @@
     const opts = UI.waveOptions();
     Player.startEndless({
       kind: 'wave',
-      title: 'Моя волна',
+      title: 'Музыкальная орбита',
       params: { opts },
       fetchMore: () => window.zvuk.call('personalWave', 10, opts),
     });
@@ -744,7 +777,7 @@
     if (!d) return;
     const s = d.source || {};
     let source = { kind: 'list', title: s.title || '' };
-    if (s.kind === 'wave') source = { kind: 'wave', title: 'Моя волна', params: s.params, fetchMore: () => window.zvuk.call('personalWave', 10, s.params?.opts || {}) };
+    if (s.kind === 'wave') source = { kind: 'wave', title: 'Музыкальная орбита', params: s.params, fetchMore: () => window.zvuk.call('personalWave', 10, s.params?.opts || {}) };
     else if (s.kind === 'radio' && s.params) {
       let cursor = 0;
       source = { kind: 'radio', title: s.title, params: s.params, fetchMore: async () => { const r = await window.zvuk.call('radio', s.params.type, s.params.id, cursor); cursor = r.cursor || cursor + r.tracks.length; return r.tracks; } };
@@ -985,7 +1018,7 @@
   function renderQueue() {
     const body = $('#spBody');
     if (!Player.queue.length) {
-      body.innerHTML = `<div class="empty">${icon('queue')}<div>Очередь пуста</div><button class="btn primary" data-act="wave-toggle">${icon('wave')}Включить «Мою волну»</button></div>`;
+      body.innerHTML = `<div class="empty">${icon('queue')}<div>Очередь пуста</div><button class="btn primary" data-act="wave-toggle">${icon('wave')}Включить «Музыкальную орбиту»</button></div>`;
       return;
     }
     const row = (t, i) => `<div class="qi${i === Player.index ? ' cur' : i < Player.index ? ' past' : ''}" data-qi="${i}" data-act="queue-play">
@@ -1202,6 +1235,8 @@
       case 'nav':
         e.stopPropagation();
         if (el.classList.contains('nav-item')) navTapEffect(el, e);
+        if (d.view === 'search') showRecentTop();
+        else hideRecentTop();
         if (d.view === 'search' && App.route?.view !== 'search') navigate('search', { q: $('#searchInput').value.trim() });
         else if (d.view !== 'search') navigate(d.view, d.id ? { id: d.id } : {});
         else $('#searchInput').focus();
@@ -1349,6 +1384,26 @@
         if (Player.source?.kind === 'wave' && Player.current) Player.toggle();
         else startMyWave();
         break;
+      case 'wave-scene': {
+        const next = localStorage.getItem('zg.waveScene') === 'rings' ? 'tide' : 'rings';
+        localStorage.setItem('zg.waveScene', next);
+        const canvas = $('#waveCosmos');
+        if (canvas?._cosmos) {
+          canvas._cosmos.set({ style: next });
+          canvas.dataset.scene = next;
+        }
+        const sceneBtn = $('#waveSceneBtn');
+        if (sceneBtn) {
+          sceneBtn.innerHTML = `${icon('album')}<span>${next === 'rings' ? 'Кольца Сатурна' : 'Орбитальный прилив'}</span>`;
+          sceneBtn.setAttribute('aria-pressed', String(next === 'rings'));
+        }
+        const sceneLabel = $('.wv-portal-label');
+        if (sceneLabel) sceneLabel.innerHTML = `<span></span>${next === 'rings' ? 'Кольца Сатурна' : 'Орбитальный прилив'}<span></span>`;
+        break;
+      }
+      case 'wave-focus':
+        setWaveFocus(!document.body.classList.contains('wave-focus'));
+        break;
       case 'wave-set': {
         const w = { ...(App.settings.wave || {}) };
         w[d.key] = d.val;
@@ -1375,10 +1430,12 @@
         toggleSection(d.sec);
         break;
       case 'search':
-        navigate('search', { q: d.q });
+        input.value = d.q;
+        doSearch(d.q);
         break;
       case 'clear-searches':
         localStorage.removeItem('zg.searches');
+        hideRecentTop();
         render(true);
         break;
       case 'expand-tracks': {
@@ -1469,6 +1526,7 @@
     if (clr) clr.classList.toggle('hidden', !(w.genres || []).length);
     const sum = $('#waveSummary');
     if (sum) sum.textContent = UI.waveSummary(w);
+    Views._waveTune?.(w);
     if (restart || Player.source?.kind === 'wave') {
       clearTimeout(saveWave.t);
       saveWave.t = setTimeout(startMyWave, restart ? 0 : 700);
@@ -1519,23 +1577,97 @@
   let suggItems = [];
   let suggIdx = -1;
   let suggSeq = 0;
+  const recentTop = $('#recentTop');
+  const recentTopList = $('#recentTopList');
 
   App.recentSearches = () => {
     try {
-      return JSON.parse(localStorage.getItem('zg.searches') || '[]');
+      const list = JSON.parse(localStorage.getItem('zg.searches') || '[]');
+      return Array.isArray(list) ? list.filter((x) => typeof x === 'string' && x.trim()).slice(0, 12) : [];
     } catch {
       return [];
     }
   };
+  function fillRecentTop() {
+    const list = App.recentSearches().slice(0, 6);
+    recentTopList.innerHTML = list
+      .map((q) => `<button class="recent-query" data-act="search" data-q="${esc(q)}" title="${esc(q)}">${icon('clock')}<span>${esc(q)}</span></button>`)
+      .join('');
+    hydrateIcons(recentTopList);
+    return list.length;
+  }
+  function fitRecentTop() {
+    if (recentTop.classList.contains('hidden')) return;
+    const items = $$('.recent-query', recentTopList);
+    items.forEach((b) => {
+      b.classList.remove('hidden');
+      b.style.maxWidth = '';
+    });
+    // Показываем целые кнопки: обрезанный наполовину запрос выглядит как ошибка вёрстки.
+    for (let i = items.length - 1; i > 0 && recentTopList.scrollWidth > recentTopList.clientWidth + 1; i--) items[i].classList.add('hidden');
+    if (items[0] && recentTopList.scrollWidth > recentTopList.clientWidth + 1) items[0].style.maxWidth = Math.max(48, recentTopList.clientWidth) + 'px';
+    recentTop.classList.toggle('has-more', items.some((b) => b.classList.contains('hidden')));
+  }
+  let recentFitFrame = 0;
+  function queueRecentFit() {
+    if (recentFitFrame || recentTop.classList.contains('hidden')) return;
+    recentFitFrame = requestAnimationFrame(() => {
+      recentFitFrame = 0;
+      fitRecentTop();
+    });
+  }
+  function showRecentTop() {
+    if (!fillRecentTop()) return hideRecentTop();
+    recentTop.classList.remove('hidden');
+    fitRecentTop();
+    queueRecentFit();
+  }
+  function hideRecentTop() {
+    recentTop.classList.add('hidden');
+    recentTop.classList.remove('has-more');
+  }
+  // Плавное изменение ширины поиска меняет место для запросов на каждом кадре.
+  // Observer живёт постоянно, но пересчёт шести кнопок происходит только при реальном resize видимой ленты.
+  const recentSizeObserver = new ResizeObserver(queueRecentFit);
+  recentSizeObserver.observe(recentTopList);
+  window.addEventListener('resize', queueRecentFit);
+  recentTop.addEventListener('mousedown', (e) => {
+    // Не отдаём фокус до клика по запросу — иначе лента успевает скрыться.
+    if (e.target.closest('.recent-query')) e.preventDefault();
+  });
+  recentTop.addEventListener('focusout', () =>
+    setTimeout(() => {
+      if (document.activeElement !== input && !recentTop.contains(document.activeElement)) hideRecentTop();
+    }, 150),
+  );
+  recentTop.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    const items = $$('.recent-query:not(.hidden)', recentTopList);
+    const at = items.indexOf(document.activeElement);
+    if (!items.length) return;
+    e.preventDefault();
+    items[(at + (e.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length].focus();
+  });
+
   function rememberSearch(q) {
+    if (!q) return;
     const list = App.recentSearches().filter((x) => x.toLowerCase() !== q.toLowerCase());
     list.unshift(q);
     localStorage.setItem('zg.searches', JSON.stringify(list.slice(0, 12)));
+    if (!recentTop.classList.contains('hidden')) {
+      fillRecentTop();
+      fitRecentTop();
+    }
   }
   function doSearch(q) {
     q = q.trim();
     hideSuggest();
-    if (!q) return navigate('search', {});
+    if (!q) {
+      navigate('search', {});
+      showRecentTop();
+      return;
+    }
+    hideRecentTop();
     rememberSearch(q);
     if (App.route?.view === 'search') {
       App.route.params = { q };
@@ -1607,6 +1739,8 @@
   }
 
   input.addEventListener('input', () => {
+    if (input.value.trim()) hideRecentTop();
+    else if (document.activeElement === input) showRecentTop();
     if (App.route?.view === 'search') {
       hideSuggest();
       liveSearch();
@@ -1614,7 +1748,13 @@
   });
   input.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      if (!suggItems.length) return;
+      if (!suggItems.length) {
+        if (e.key === 'ArrowDown' && !recentTop.classList.contains('hidden')) {
+          e.preventDefault();
+          $('.recent-query:not(.hidden)', recentTopList)?.focus();
+        }
+        return;
+      }
       e.preventDefault();
       suggIdx = (suggIdx + (e.key === 'ArrowDown' ? 1 : -1) + suggItems.length) % suggItems.length;
       $$('[data-si]', sugg).forEach((el) => el.classList.toggle('active', +el.dataset.si === suggIdx));
@@ -1627,7 +1767,13 @@
       input.blur();
     }
   });
-  input.addEventListener('blur', () => setTimeout(hideSuggest, 150));
+  input.addEventListener('focus', showRecentTop);
+  input.addEventListener('blur', () =>
+    setTimeout(() => {
+      hideSuggest();
+      if (!recentTop.contains(document.activeElement)) hideRecentTop();
+    }, 150),
+  );
   sugg.addEventListener('mousedown', (e) => {
     const el = e.target.closest('[data-si]');
     if (el) {
@@ -1645,12 +1791,14 @@
       e.preventDefault();
       input.focus();
       input.select();
+      showRecentTop();
       return;
     }
     if (e.key === 'Escape') {
       closeMenu();
       if (NP.eqOpen) NP.closeEq();
       else if (npOpen()) closeNowPlaying();
+      else if (document.body.classList.contains('wave-focus')) setWaveFocus(false);
       return;
     }
     if (e.altKey && e.key === 'ArrowLeft') return goBack();
@@ -1721,38 +1869,15 @@
       }),
     };
     window.zvuk.player.thumbarIcons(icons);
-    // Иконка приложения
-    const c = document.createElement('canvas');
-    c.width = c.height = 256;
-    const g = c.getContext('2d');
-    const r = 64;
-    g.beginPath();
-    g.roundRect(8, 8, 240, 240, r);
-    g.clip();
-    const cg = g.createConicGradient(3.5, 128, 128);
-    cg.addColorStop(0, '#9d8cff');
-    cg.addColorStop(0.35, '#ff7ab6');
-    cg.addColorStop(0.65, '#ffd36e');
-    cg.addColorStop(1, '#9d8cff');
-    g.fillStyle = cg;
-    g.fillRect(0, 0, 256, 256);
-    const rg = g.createRadialGradient(80, 64, 0, 80, 64, 140);
-    rg.addColorStop(0, 'rgba(255,255,255,.85)');
-    rg.addColorStop(1, 'rgba(255,255,255,0)');
-    g.fillStyle = rg;
-    g.fillRect(0, 0, 256, 256);
-    g.strokeStyle = '#fff';
-    g.lineWidth = 16;
-    g.lineCap = 'round';
-    g.beginPath();
-    const ys = [0, -38, 30, -58, 44, -24, 10];
-    ys.forEach((dy, i) => {
-      const x = 52 + i * 25;
-      g.moveTo(x, 128 - Math.abs(dy) / 2 - 8);
-      g.lineTo(x, 128 + Math.abs(dy) / 2 + 8);
-    });
-    g.stroke();
-    window.zvuk.player.appIcon(c.toDataURL('image/png'));
+    // Тот же фирменный знак, что и в оболочке: один локальный SVG без сетевых ресурсов.
+    const brand = new Image();
+    brand.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 256;
+      c.getContext('2d').drawImage(brand, 0, 0, 256, 256);
+      window.zvuk.player.appIcon(c.toDataURL('image/png'));
+    };
+    brand.src = 'brand.svg';
   }
 
   // ======================================================================
@@ -1785,6 +1910,194 @@
         await wait(600);
       }
     }
+    // Переносная копия: ни автоматический, ни ручной запрос не должен запускать загрузку обновления.
+    if (extra === 'portable') {
+      const state = await window.zvuk.update.state();
+      const checked = await window.zvuk.update.check();
+      navigate('settings');
+      await wait(900);
+      $('#aboutCard')?.scrollIntoView({ block: 'center' });
+      const line = $('#updLine')?.textContent || '';
+      const pass = state.portable === true && state.state === 'portable' && checked.state === 'portable' && line.includes('Переносная тестовая копия');
+      console.warn(`SELFTEST portable: pass=${pass} flag=${state.portable} state=${state.state} manual=${checked.state} line=${line}`);
+      return window.zvuk.screenshotReady(600);
+    }
+    // Полный проход по страницам: фактический DOM, раскладка, кадры, число API-вызовов и гонки.
+    // Работает только в служебном анонимном режиме и ничего не меняет в аккаунте.
+    if (extra === 'fullaudit') {
+      Player.pause();
+      const report = { pages: [], checks: {}, faults: [] };
+      const rawCall = window.zvuk.call;
+      const calls = {};
+      const countedCall = (method, ...args) => {
+        calls[method] = (calls[method] || 0) + 1;
+        return rawCall(method, ...args);
+      };
+      window.zvuk.call = countedCall;
+      const fault = (e) => report.faults.push(String(e?.message || e));
+      const onError = (e) => fault(e.message);
+      const onReject = (e) => fault(e.reason?.message || e.reason);
+      window.addEventListener('error', onError);
+      window.addEventListener('unhandledrejection', onReject);
+      const sampleFrames = (ms = 900) => new Promise((resolve) => {
+        const deltas = [];
+        let last = performance.now();
+        const end = last + ms;
+        const tick = (now) => {
+          deltas.push(now - last);
+          last = now;
+          if (now < end) return requestAnimationFrame(tick);
+          deltas.sort((a, b) => a - b);
+          resolve({ fps: +(deltas.length * 1000 / (now - end + ms)).toFixed(1), p95: +(deltas[Math.floor(deltas.length * 0.95)] || 0).toFixed(1), over25: deltas.filter((x) => x > 25).length });
+        };
+        requestAnimationFrame(tick);
+      });
+      const waitFor = async (fn, timeout = 30000) => {
+        const start = performance.now();
+        while (performance.now() - start < timeout) {
+          try { if (fn()) return true; } catch {}
+          await wait(200);
+        }
+        return false;
+      };
+      const visit = async (name, params, selector, ready = () => true) => {
+        navigate(name, params || {});
+        const found = await waitFor(() => $(selector) && ready());
+        await wait(350);
+        const perf = await sampleFrames();
+        const error = $('#view [data-act="reload-view"]');
+        const entry = {
+          page: name + (params?.q ? ':' + params.q : ''), loaded: found,
+          content: $(selector)?.textContent?.trim().slice(0, 100) || '',
+          error: error?.textContent || null,
+          horizontalOverflow: document.documentElement.scrollWidth > innerWidth + 1,
+          detachedCanvas: [...document.querySelectorAll('canvas')].filter((c) => !c.isConnected).length,
+          perf,
+        };
+        entry.pass = found && !error && !entry.horizontalOverflow;
+        report.pages.push(entry);
+        console.warn(`AUDIT page ${JSON.stringify(entry)}`);
+      };
+      try {
+        const cases = [
+          ['home', {}, '#homeRing'],
+          ['popular', {}, '#topList .tr'],
+          ['wave', {}, '#waveCosmos'],
+          ['search', {}, '#searchWaves', () => !$('#searchWaves .skel')],
+          ['search', { q: 'Imagine' }, '#view .tr'],
+          ['artist', { id: '102622' }, '.artist-hero'],
+          ['release', { id: '19896779' }, '#view .tr'],
+          ['playlist', { id: '1062105' }, '#view .tr'],
+          ['liked', {}, '#likedMeta', () => $('#likedMeta')?.textContent !== 'Загрузка…' && !$('#likedList .skel')],
+          ['albums', {}, '.page-title', () => !$('#view .skel')],
+          ['artists', {}, '.page-title', () => !$('#view .skel')],
+          ['playlists', {}, '.page-title', () => !$('#view .skel')],
+          ['history', {}, '.page-title', () => !$('#view .skel')],
+          ['settings', {}, '#aboutCard'],
+          ['visualizer', {}, '#vizStage canvas'],
+          ['equalizer', {}, '#eqCanvas'],
+        ];
+        for (const c of cases) await visit(...c);
+        // Повторный вход использует кэш; подписка не запрашивается при каждом клике.
+        await visit('settings', {}, '#aboutCard');
+        await visit('popular', {}, '#topList .tr');
+        report.checks.popularChart = $$('#topList .tr').length;
+        report.checks.popularPodium = $$('.tp-card').length;
+        report.checks.popularContent = report.checks.popularChart > 0 && report.checks.popularPodium === 3;
+
+        // Реальный backend: восемь одинаковых вызовов → один dispatch и один HTTP-запрос.
+        let before = await window.zvuk.debug.apiStats();
+        const trackId = $('#view .tr')?.dataset.track || (await api('getRelease', '6233892')).tracks[0].id;
+        const same = await Promise.all(Array.from({ length: 8 }, () => rawCall('getTracks', [trackId])));
+        let after = await window.zvuk.debug.apiStats();
+        report.checks.backendDedup = { identicalResults: same.every((x) => JSON.stringify(x) === JSON.stringify(same[0])), httpDelta: after.httpSent - before.httpSent };
+        before = after;
+        const collections = await Promise.all(Array.from({ length: 8 }, () => rawCall('getCollectionIds')));
+        after = await window.zvuk.debug.apiStats();
+        report.checks.collectionDedup = { identicalResults: collections.every((x) => JSON.stringify(x) === JSON.stringify(collections[0])), httpDelta: after.httpSent - before.httpSent };
+
+        // Ограничение JS-кэша, повторное использование Promise и удаление ошибки — без сети.
+        api.invalidate('search:');
+        window.zvuk.call = async () => ({ tracks: [], artists: [], releases: [], playlists: [] });
+        for (let i = 0; i < 190; i++) await api('search', 'audit-cache-' + i);
+        const cacheInfo = api.auditCache();
+        let mockCalls = 0;
+        window.zvuk.call = async () => { mockCalls++; return { tracks: [], artists: [], releases: [], playlists: [] }; };
+        await api('search', 'audit-cache-189');
+        await api('search', 'audit-cache-0');
+        report.checks.lru = { ...cacheInfo, pass: cacheInfo?.size === 180 && mockCalls === 1 };
+        window.zvuk.call = async () => { mockCalls++; throw new Error('synthetic-cache-error'); };
+        for (let i = 0; i < 2; i++) await api('search', 'audit-error').catch(() => {});
+        report.checks.rejectedCacheRemoved = mockCalls === 3;
+        let release;
+        window.zvuk.call = () => { mockCalls++; return new Promise((r) => { release = r; }); };
+        const a = api('search', 'audit-shared');
+        const b = api('search', 'audit-shared');
+        release({ tracks: [] });
+        await Promise.all([a, b]);
+        report.checks.frontendPromiseShared = mockCalls === 4;
+        api.invalidate('search:');
+        window.zvuk.call = countedCall;
+
+        // Медленный ответ прежней волны не должен перезаписать новую очередь.
+        const savedPlayer = { queue: Player.queue, index: Player.index, source: Player.source, original: Player.original, load: Player._load };
+        let finishOld;
+        Player._load = (i) => { Player.index = i; };
+        const oldSource = { kind: 'wave', fetchMore: () => new Promise((r) => { finishOld = r; }) };
+        const first = Player.startEndless(oldSource);
+        const newSource = { kind: 'wave', fetchMore: async () => [{ id: 'audit-new', title: 'new', artists: [] }] };
+        await Player.startEndless(newSource);
+        finishOld([{ id: 'audit-old', title: 'old', artists: [] }]);
+        await first;
+        report.checks.waveRace = Player.source === newSource && Player.queue.length === 1 && Player.current?.id === 'audit-new';
+        Player._load = savedPlayer.load;
+
+        // close → open за 360 мс: старый таймер не закрывает новый экран.
+        const releaseData = await api('getRelease', '6233892');
+        Player.queue = releaseData.tracks.slice(0, 1);
+        Player.index = 0;
+        Player.source = { kind: 'list', title: 'audit' };
+        const oldViz = NP.vizOn;
+        NP.vizOn = false;
+        NP.open();
+        NP.close();
+        NP.open();
+        await wait(700);
+        report.checks.nowPlayingRace = NP.isOpen && !$('#nowPlaying').classList.contains('closing') && document.body.classList.contains('np-open');
+        let cyclesOk = true;
+        for (let cycle = 0; cycle < 3; cycle++) {
+          NP.open();
+          await wait(560);
+          cyclesOk = cyclesOk && NP.isOpen && document.body.classList.contains('np-open');
+          NP.close();
+          await wait(420);
+          cyclesOk = cyclesOk && !NP.isOpen && !$('#nowPlaying').classList.contains('closing') && !document.body.classList.contains('np-open');
+        }
+        report.checks.nowPlayingCycles = Boolean(cyclesOk);
+        const popularNav = $('[data-act="nav"][data-view="popular"]');
+        const navRect = popularNav.getBoundingClientRect();
+        const navHit = document.elementFromPoint(navRect.left + navRect.width / 2, navRect.top + navRect.height / 2);
+        report.checks.nowPlayingHitTest = Boolean(navHit && !navHit.closest('#nowPlaying') && (navHit === popularNav || popularNav.contains(navHit)));
+        NP.vizOn = oldViz;
+        Object.assign(Player, { queue: savedPlayer.queue, index: savedPlayer.index, source: savedPlayer.source, original: savedPlayer.original });
+        Player.emit('queue');
+        report.checks.waveRace = Boolean(report.checks.waveRace);
+        report.checks.backendDedup.pass = report.checks.backendDedup.httpDelta === 1 && report.checks.backendDedup.identicalResults;
+        report.checks.collectionDedup.pass = report.checks.collectionDedup.httpDelta === 1 && report.checks.collectionDedup.identicalResults;
+        report.checks.subscriptionCached = (calls.getSubscription || 0) === 1;
+      } catch (e) { fault(e); }
+      finally {
+        window.zvuk.call = rawCall;
+        window.removeEventListener('error', onError);
+        window.removeEventListener('unhandledrejection', onReject);
+      }
+      report.calls = calls;
+      report.pass = report.pages.every((p) => p.pass) && !report.faults.length && Object.entries(report.checks).filter(([, v]) => typeof v === 'object').every(([, v]) => v.pass !== false) && Object.entries(report.checks).filter(([, v]) => typeof v === 'boolean').every(([, v]) => v);
+      console.warn('SELFTEST fullaudit: ' + JSON.stringify(report));
+      navigate('home');
+      await wait(1400);
+      return window.zvuk.screenshotReady(0);
+    }
     // служебно: долгое тихое воспроизведение (проверка медиаклавиш и системной панели Windows)
     if (extra === 'playlong' || extra === 'playlongq') {
       await silentPlay(1);
@@ -1815,6 +2128,14 @@
       NP.vizOn = extra.includes('viz');
       openNowPlaying();
       await wait(2200);
+      const npStageStyle = getComputedStyle($('.np-stage'));
+      const npCenter = window.innerWidth / 2 - (NP.lyricsOn ? window.innerWidth * 0.22 : 0);
+      const npParts = ['#npTitle', '.np-seek', '.np-controls'].map((selector) => {
+        const r = $(selector).getBoundingClientRect();
+        return Math.abs(r.left + r.width / 2 - npCenter) <= 2;
+      });
+      const npLayout = npStageStyle.display === 'flex' && npStageStyle.flexDirection === 'column' && npParts.every(Boolean);
+      console.warn(`SELFTEST nplayout: centered=${npLayout} display=${npStageStyle.display} direction=${npStageStyle.flexDirection} parts=${npParts.join('/')}`);
       if (extra.includes('real')) {
         // настоящая мышь: сначала мимо карточки, потом на её центр (как это делает человек); сначала «ранее», потом «далее»
         for (const d of [-1, 1]) {
@@ -1907,6 +2228,158 @@
         await M(tr.left + tr.width / 2, tr.top + tr.height * 0.7);
         await wait(400);
       }
+    } else if (extra === 'clipfeedback') {
+      // Локальная регрессия семи исправлений. YouTube здесь не подменяется и не проверяется:
+      // mock-mount нужен только для синхронных команд seekTo и setPlaybackQuality.
+      navigate('settings');
+      await wait(650);
+      const settingsStates = {};
+      for (const key of ['clipRestart', 'inkEnabled']) {
+        const b = $(`#clipPrefs [data-vpref="${key}"]`);
+        if (!b) {
+          settingsStates[key] = false;
+          continue;
+        }
+        const before = Clip.pref(key);
+        b.click();
+        await wait(100);
+        const saved = await window.zvuk.settings.get();
+        settingsStates[key] = Clip.pref(key) !== before && b.getAttribute('aria-pressed') === String(Clip.pref(key)) && saved.viz?.[key] === Clip.pref(key);
+      }
+      const prefsOk = Object.values(settingsStates).every(Boolean);
+      console.warn(`SELFTEST clipprefs settings: ${JSON.stringify(settingsStates)} pass=${prefsOk}`);
+
+      let l = firstList();
+      if (!l) {
+        const r = await api('getRelease', '6233892');
+        l = { tracks: r.tracks.map((t) => ({ ...t, release: { id: r.id, title: r.title, image: r.image } })), source: { kind: 'list', title: r.title } };
+      }
+      Player.cue(l.tracks, Math.min(2, l.tracks.length - 1), 0, { kind: 'list', title: 'Музыкальная орбита · очень длинное название источника без обрезанных букв' });
+      await wait(650);
+      const tid = String(Player.current.id);
+      Clip.trackId = tid;
+      Clip.entry = { cands: [], pick: null, manual: null, offset: 0, auto: null };
+      Clip.status = 'ok';
+      App.settings.viz.bg = 'clip';
+      NP.vizOn = true;
+      openNowPlaying();
+      await wait(800);
+      $('#npTitle').textContent = 'Firestarter — Orbital Resonance';
+      $('#npArtist').textContent = 'VALORANT, Grabbitz, Oli Sykes, Courtney LaPlante';
+      $('#npSource').textContent = 'Сейчас играет · Музыкальная орбита · длинное название источника';
+      const fake = document.createElement('div');
+      fake.className = 'vz-img';
+      fake.style.cssText = 'position:absolute;inset:0;background:linear-gradient(105deg,#0c1424 0 34%,#eef5ff 45% 66%,#111a2c 77% 100%)';
+      $('#nowPlaying .vz-media').appendChild(fake);
+
+      $('#nowPlaying .vz-gear')?.click();
+      await wait(300);
+      const panelStates = {};
+      for (const key of ['clipRestart', 'inkEnabled']) {
+        const b = $(`#nowPlaying .vz-panel [data-vpref="${key}"]`);
+        if (!b) {
+          panelStates[key] = false;
+          continue;
+        }
+        const before = Clip.pref(key);
+        b.click();
+        await wait(100);
+        const current = $(`#nowPlaying .vz-panel [data-vpref="${key}"]`);
+        const saved = await window.zvuk.settings.get();
+        panelStates[key] = Clip.pref(key) !== before && current?.getAttribute('aria-pressed') === String(Clip.pref(key)) && saved.viz?.[key] === Clip.pref(key);
+      }
+      const panelOk = Object.values(panelStates).every(Boolean);
+      console.warn(`SELFTEST clipprefs visualizer: ${JSON.stringify(panelStates)} pass=${panelOk}`);
+      $('#nowPlaying .vz-gear')?.click();
+
+      Clip.setPreference('inkEnabled', true);
+      Ink.stop();
+      Ink.start();
+      await wait(1200);
+      const boxes = ['#npSource', '#npTitle', '#npArtist'].map((selector) => {
+        const el = $(selector);
+        const b = Ink._boxForTest(el);
+        const contains = Boolean(b && b.cssLeft <= b.textLeft + 0.01 && b.cssLeft + b.cssWidth >= b.textLeft + b.textWidth - 0.01);
+        return { selector, contains, cssLeft: b?.cssLeft, cssWidth: b?.cssWidth, textLeft: b?.textLeft, textWidth: b?.textWidth };
+      });
+      const boxesOk = boxes.every((b) => b.contains);
+      console.warn(`SELFTEST cliptext boxes: ${JSON.stringify(boxes)} pass=${boxesOk}`);
+
+      Clip.setPreference('inkEnabled', false);
+      await wait(120);
+      const inkOff = Ink.stats.active === 0 && !$('#nowPlaying .water-ink') && ['#npSource', '#npTitle', '#npArtist'].every((s) => !$(s).style.backgroundImage);
+      Clip.setPreference('inkEnabled', true);
+      Ink.start();
+      console.warn(`SELFTEST clipprefs inkOff=${inkOff}`);
+
+      const oldSeek = Player.seek;
+      let restartSeeks = 0;
+      Player.seek = () => restartSeeks++;
+      Clip.setPreference('clipRestart', false);
+      const holdResult = Clip._restartAfterSync();
+      Player.seek = oldSeek;
+      const holdOk = holdResult === 'hold' && restartSeeks === 0;
+      console.warn(`SELFTEST cliprestart hold=${holdResult} seeks=${restartSeeks} pass=${holdOk}`);
+
+      // Только политика уведомления: реальная видимость YouTube этим тестом не доказывается.
+      Clip.entry = { cands: [{ id: 'synthetic-video' }], pick: 0, manual: null, offset: 0, auto: null };
+      App.settings.viz.bg = 'cover';
+      const oldFind = window.zvuk.yt.find;
+      let disabledLookups = 0;
+      window.zvuk.yt.find = async (...args) => {
+        disabledLookups++;
+        return oldFind(...args);
+      };
+      const disabledNeed = await ClipOffer.need(Player.current);
+      window.zvuk.yt.find = oldFind;
+      App.settings.viz.bg = 'clip';
+      const oldVisible = ClipOffer.clipVisible;
+      ClipOffer.clipVisible = () => false;
+      const hiddenNeed = await ClipOffer.need(Player.current);
+      ClipOffer.clipVisible = () => true;
+      const visibleNeed = await ClipOffer.need(Player.current);
+      ClipOffer.clipVisible = oldVisible;
+      const offerPolicy = disabledNeed === null && disabledLookups === 0 && hiddenNeed === null && visibleNeed?.sync === true && !('clip' in visibleNeed);
+      console.warn(`SELFTEST clipoffer policy-test disabledNeed=${disabledNeed === null} disabledLookups=${disabledLookups} hiddenNeed=${hiddenNeed === null} visibleSync=${visibleNeed?.sync} syncOnly=${visibleNeed && !('clip' in visibleNeed)} pass=${offerPolicy}`);
+
+      const oldAuto = Clip.auto;
+      App.settings.viz.clipAuto = true;
+      Clip._wantTrack = tid;
+      Clip._cal = false;
+      Clip._calKey = tid + '|synthetic-video';
+      Clip.sync = { state: 'fail', message: 'synthetic failure' };
+      const failedDue = Clip._calibrationDueForTest({ state: 1, lastSeek: 0 }, 100000);
+      Clip._calKey = '';
+      const freshDue = Clip._calibrationDueForTest({ state: 1, lastSeek: 0 }, 100000);
+      const noRetry = failedDue === false && freshDue === true;
+      App.settings.viz.clipAuto = oldAuto;
+      Clip.sync = { state: 'idle', message: '' };
+      console.warn(`SELFTEST clipretry failedDue=${failedDue} freshDue=${freshDue} pass=${noRetry}`);
+
+      const sent = [];
+      const iframe = { contentWindow: { postMessage: (raw) => sent.push(JSON.parse(raw)) } };
+      const mock = {
+        iframe, ready: true, state: 1, time: 0, timeAt: performance.now(),
+        box: { classList: { remove() {} } }, driftFilter: { reset() {} },
+      };
+      Clip._seekForTest(mock, 42.25);
+      const seekCmd = sent.find((c) => c.func === 'seekTo');
+      const seekOk = seekCmd?.args?.[0] === 42.25 && mock.seekTarget === 42.25 && mock.seekSentAt > 0;
+      const oldQuality = Clip.quality;
+      App.settings.viz.clipQ = '2160';
+      const quality2160 = Clip._qualityForTest(mock);
+      const q4k = sent.some((c) => c.func === 'setPlaybackQualityRange' && c.args?.[0] === 'hd2160' && c.args?.[1] === 'hd2160') && sent.some((c) => c.func === 'setPlaybackQuality' && c.args?.[0] === 'hd2160');
+      App.settings.viz.clipQ = 'auto';
+      Clip._qualityForTest(mock);
+      const autoRelease = sent.some((c) => c.func === 'setPlaybackQualityRange' && c.args?.[0] === 'default' && c.args?.[1] === 'highres') && sent.some((c) => c.func === 'setPlaybackQuality' && c.args?.[0] === 'default');
+      App.settings.viz.clipQ = oldQuality;
+      const commandsOk = seekOk && q4k && autoRelease && mock.iframe === iframe && quality2160.wanted === 'hd2160';
+      console.warn(`SELFTEST clipcommands synthetic seek=${seekOk} q4k=${q4k} autoRelease=${autoRelease} sameFrame=${mock.iframe === iframe} pass=${commandsOk}`);
+
+      const all = prefsOk && panelOk && boxesOk && inkOff && holdOk && offerPolicy && noRetry && commandsOk;
+      console.warn(`SELFTEST clipfeedback: pass=${all}`);
+      if (!all) console.error('SELFTEST clipfeedback: один или несколько локальных тестов не пройдены');
+      await wait(2800);
     } else if (extra === 'ink' || extra === 'inkclip') {
       // «Чернила»: элементы над светлым фоном темнеют, над тёмным — остаются светлыми
       const name = (el) => el.id || [...el.classList].filter((c) => c !== 'inkable').slice(0, 2).join('.');
@@ -1926,6 +2399,26 @@
         $('#nowPlaying .vz-media').appendChild(fake);
         await wait(2500);
         report('split');
+        const water = Ink.state.filter((s) => s.spatial);
+        console.warn(`SELFTEST water: ${water.map((s) => `${name(s.el)}:spread=${s.spread.toFixed(2)}:paints=${s.paints}`).join(' ')} clip=${getComputedStyle($('#npTitle')).backgroundClip} frameMs=${Ink.stats.frameMs.toFixed(1)} period=${Ink.stats.period} width=${Ink.stats.width}`);
+        const testBox = { left: 12, right: 52, top: 14, bottom: 38, width: 40, height: 24 };
+        const flatPx = new Uint8Array(64 * 64).fill(128);
+        const flat = Ink._test.waterField({ w: 64, h: 64, px: flatPx }, testBox, 64, 64);
+        const flatOk = [...flat.field].every((l) => Math.abs(l - 128 / 255) < 0.002);
+        const splitPx = Uint8Array.from({ length: 64 * 64 }, (_, i) => i % 64 < 32 ? 235 : 18);
+        const split = Ink._test.waterField({ w: 64, h: 64, px: splitPx }, testBox, 64, 64);
+        const splitLeft = split.field[6 * Ink._test.width + 5];
+        const splitRight = split.field[6 * Ink._test.width + Math.round(90 * (Ink._test.width - 1) / 95)];
+        const splitOk = splitLeft > 0.86 && splitRight < 0.14;
+        const shadeSamples = [0.5, 0.55, 0.65, 0.85, 0.98].map((l) => ({ l, rgb: Ink._test.darkRGB(l) }));
+        const shadeMonotonic = shadeSamples.every((s, i, a) => !i || s.rgb.every((v, c) => v <= a[i - 1].rgb[c]));
+        const shadeContrast = shadeSamples.every((s) => {
+          const luma = (s.rgb[0] * 0.2126 + s.rgb[1] * 0.7152 + s.rgb[2] * 0.0722) / 255;
+          return Ink._test.contrast(s.l, luma) >= 4.5;
+        });
+        const shadesOk = shadeMonotonic && shadeContrast && shadeSamples[0].rgb[0] - shadeSamples[4].rgb[0] >= 14;
+        console.warn(`SELFTEST ink-precision: flat=${flatOk} split=${splitOk} (${splitLeft.toFixed(2)}→${splitRight.toFixed(2)}) shades=${shadesOk} palette=${JSON.stringify(shadeSamples)}`);
+        if (!flatOk || !splitOk || !shadesOk) console.error('SELFTEST ink-precision: FAILED');
         fake.style.background = '#f4f4f4';
         await wait(2000);
         console.warn(`SELFTEST ink white: dark=${Ink.state.filter((s) => s.target).length}/${Ink.state.length} orb=${getComputedStyle($('#npPlay')).color}`);
@@ -1978,12 +2471,14 @@
       App.rerender();
       await wait(900);
     } else if (extra === 'whatsnew') {
-      // плашка «Что нового»: принудительно и как после обновления (раньше стояла 2.2.1)
-      App.settings.seenVersion = '2.2.1';
+      // Плашка после обновления с последней публичной версии: все изменения объединены в 3.0.0.
+      App.settings.seenVersion = '2.3.3';
       App.settings.freshInstall = false;
-      await App.whatsNew(false, '2.2.3');
+      await App.whatsNew(false, '3.0.0');
       await wait(700);
-      console.warn(`SELFTEST whatsnew: shown=${Boolean($('.wn-back'))} items=${$$('.wn-item').length} seen=${App.settings.seenVersion}`);
+      const shownVersion = $('.wn-tt h3')?.textContent || '';
+      const wnItems = $$('.wn-item').length;
+      console.warn(`SELFTEST whatsnew: shown=${Boolean($('.wn-back'))} items=${wnItems} seen=${App.settings.seenVersion} title=${shownVersion} current=${shownVersion === 'Zvuk Glass 3.0.0'} consolidated=${wnItems === 7}`);
     } else if (extra === 'lyrext') {
       // Тексты: сколько треков чарта без синхронизированного текста в Zvuk и сколько из них нашлось в LRCLIB
       const pop = await api('popular');
@@ -2134,7 +2629,7 @@
       console.warn(`SELFTEST ${extra} mid: sidebar x=${Math.round(s.left)} w=${Math.round(s.width)} | main x=${Math.round(m.left)} w=${Math.round(m.width)}`);
       return window.zvuk.screenshotReady(0);
     } else if (extra === 'clipofferopen') {
-      // уведомление появляется само при открытии «Сейчас играет» и уходит при закрытии
+      // При выключенном клипе ни открытие, ни повторное открытие окна не показывает предложений.
       Object.assign(App.settings.viz, { bg: 'cover', clipAuto: false });
       NP.vizOn = false;
       await silentPlay(2);
@@ -2142,16 +2637,15 @@
       console.warn(`SELFTEST clipofferopen before: card=${Boolean($('.clip-offer'))}`);
       const t0 = performance.now();
       openNowPlaying();
-      let k = 0;
-      while (!$('.clip-offer') && k++ < 40) await wait(50);
-      console.warn(`SELFTEST clipofferopen open: card=${Boolean($('.clip-offer'))} after=${Math.round(performance.now() - t0)}ms`);
-      await wait(600);
+      await wait(2400);
+      const suppressed = !$('.clip-offer');
+      console.warn(`SELFTEST clipofferopen disabled: suppressed=${suppressed} after=${Math.round(performance.now() - t0)}ms`);
       NP.close();
       await wait(600);
       console.warn(`SELFTEST clipofferopen closed: card=${Boolean($('.clip-offer'))}`);
-      // снова открыли — карточка снова на месте (для снимка)
       openNowPlaying();
       await wait(1200);
+      console.warn(`SELFTEST clipofferopen reopened: suppressed=${!$('.clip-offer')}`);
     } else if (extra === 'clipwatch') {
       // сторож: плеер YouTube «не загрузился» (подменяем адрес) — через ~12 с приложение пересоздаёт его само
       Object.assign(App.settings.viz, { bg: 'clip', style: 'waves', clipAuto: false });
@@ -2169,21 +2663,33 @@
       while (!$('#nowPlaying .clip-box.clip-on') && k++ < 280) await wait(100);
       console.warn(`SELFTEST clipwatch: on=${Boolean($('#nowPlaying .clip-box.clip-on'))} after=${((performance.now() - t0) / 1000).toFixed(1)}s sameFrame=${$('#nowPlaying .clip-frame') === f}`);
     } else if (extra === 'clipoffer' || extra === 'clipofferok') {
-      // Уведомление «включить клип и подстройку» (справа сверху); clipofferok — нажать «Включить и подстроить»
-      Object.assign(App.settings.viz, { bg: 'cover', clipAuto: false });
-      NP.vizOn = false;
+      // Синтетическая видимость нужна только для проверки карточки подстройки, не самого YouTube.
+      Object.assign(App.settings.viz, { bg: 'clip', clipAuto: false });
+      NP.vizOn = true;
       await silentPlay(2);
       const t = Player.current;
+      Clip.trackId = String(t.id);
+      Clip.entry = { cands: [{ id: 'synthetic-video' }], pick: 0, manual: null, offset: 0, auto: null };
+      const oldVisible = ClipOffer.clipVisible;
+      const oldRequest = Clip.requestSync;
+      let syncRequested = false;
+      ClipOffer.clipVisible = () => true;
+      Clip.requestSync = (id) => { syncRequested = id === String(t.id); };
       const need = await ClipOffer.need(t);
       console.warn(`SELFTEST clipoffer need: ${JSON.stringify(need)}`);
-      ClipOffer.show(t, { clip: true, sync: true });
+      ClipOffer.show(t, need);
       await wait(900);
+      const offerText = $('.clip-offer')?.textContent || '';
+      const syncOnly = offerText.includes('Подстроить клип?') && !offerText.includes('Включить');
+      console.warn(`SELFTEST clipoffer card: syncOnly=${syncOnly} bg=${App.settings.viz.bg}`);
       if (extra === 'clipofferok') {
-        $('.clip-offer [data-co="ok"]').click();
+        $('.clip-offer [data-co="ok"]')?.click();
         await wait(2500);
-        console.warn(`SELFTEST clipoffer ok: card=${Boolean($('.clip-offer'))} bg=${App.settings.viz.bg} auto=${Clip.auto} want=${Clip._wantTrack === String(t.id)} npOpen=${NP.isOpen} vizOn=${NP.vizOn} clipBox=${Boolean($('#nowPlaying .clip-box'))} status=${Clip.status}`);
+        console.warn(`SELFTEST clipoffer ok: card=${Boolean($('.clip-offer'))} bgUnchanged=${App.settings.viz.bg === 'clip'} syncRequested=${syncRequested} npOpen=${NP.isOpen} vizOn=${NP.vizOn}`);
         await wait(1500);
       }
+      ClipOffer.clipVisible = oldVisible;
+      Clip.requestSync = oldRequest;
     } else if (extra.startsWith('clipstart')) {
       // clipstart@<id ролика>@<мс> — снимок через заданное время после появления клипа (значки YouTube поверх него)
       // @r — после паузы и продолжения, @s — после перемотки трека
@@ -2221,11 +2727,51 @@
       }
       await wait(+ms);
       return window.zvuk.screenshotReady(0);
+    } else if (extra === 'clipmath') {
+      const result = ClipSync.selfTest();
+      console.warn(`SELFTEST clipmath: ${JSON.stringify(result)}`);
+      // Локальная проверка сохранения и приоритета ручной поправки, без YouTube и аккаунта.
+      const old = { trackId: Clip.trackId, entry: Clip.entry, auto: App.settings.viz && App.settings.viz.clipAuto };
+      const tid = '__clipmath__';
+      try {
+        Clip.trackId = tid;
+        await Clip._update({
+          manual: 'synthetic-video', offset: 0,
+          auto: { ver: ClipSync.VERSION, vid: 'synthetic-video', offset: 12.345, rate: 1.008, score: 0.8, confidence: 0.9, locked: false },
+        });
+        await Clip.setSyncMode('locked');
+        await Clip.shift(0.5);
+        const locked = Clip.syncMode === 'locked' && Clip.autoInfo.locked && Math.abs(Clip.offset - 12.845) < 0.0001 && Clip.rate === 1.008;
+        Clip._cal = true;
+        const calSeq = Clip._calSeq;
+        await Clip.shift(-0.25);
+        const cancel = !Clip._cal && Clip._calSeq > calSeq && Clip.autoInfo.locked && Math.abs(Clip.offset - 12.595) < 0.0001;
+        await Clip.setSyncMode('auto');
+        const unlocked = Clip.syncMode === 'auto' && !Clip.autoInfo.locked && Math.abs(Clip.offset - 12.595) < 0.0001;
+        await Clip.setSyncMode('manual');
+        const manual = Clip.syncMode === 'manual' && Math.abs(Clip.offset - 12.595) < 0.0001;
+        await Clip._update({ auto: { ver: ClipSync.VERSION, vid: 'synthetic-video', offset: 77, captureMs: 3000 } });
+        const shortCapture = Clip.autoInfo === null;
+        await Clip._update({ auto: { ver: ClipSync.VERSION, vid: 'synthetic-video', offset: 77, captureMs: 3000, locked: true, manualAt: Date.now() } });
+        const shortLocked = Clip.autoInfo?.locked === true && Clip.autoInfo?.offset === 77;
+        await Clip._update({ auto: { ver: ClipSync.VERSION, vid: 'synthetic-video', offset: 12.345, captureMs: 4000 } });
+        const fullCapture = Clip.autoInfo !== null;
+        await Clip._update({ auto: { ver: 1, vid: 'synthetic-video', offset: 99 } });
+        const legacy = Clip.autoInfo === null;
+        console.warn(`SELFTEST clipmodes: locked=${locked} cancel=${cancel} unlocked=${unlocked} manual=${manual} legacyRejected=${legacy} shortCaptureRejected=${shortCapture} shortLockedPreserved=${shortLocked} fullCaptureAccepted=${fullCapture}`);
+        if (!locked || !cancel || !unlocked || !manual || !legacy || !shortCapture || !shortLocked || !fullCapture) throw new Error('clipmodes failed');
+      } finally {
+        await window.zvuk.yt.update(tid, { manual: null, offset: 0, auto: null });
+        if (App.settings.viz) App.settings.viz.clipAuto = old.auto;
+        Clip.trackId = old.trackId;
+        Clip.entry = old.entry;
+      }
+      await wait(300);
     } else if (extra.startsWith('clipsync')) {
       // clipsync@<id ролика>[@<план>[@<id трека>]] — проверить на другом ролике.
       // План: «-» — слушать клип только там, где он идёт (ручной сдвиг шагами по 20 с, как раньше);
       // «auto» — как в приложении; «a,b» — перематывать клип в эти секунды и сверять замеры.
-      const [, vidArg = 'dQw4w9WgXcQ', planArg = '-', trackArg] = extra.split('@');
+      const [, vidArg = 'dQw4w9WgXcQ', planArg = 'auto', trackArg] = extra.split('@');
       Clip._testPlan = planArg === 'auto' ? null : planArg === '-' ? [null] : planArg.split(',').map(Number);
       extra = extra.split('@')[0];
       // Автосинхронизация: тихое воспроизведение (звук нужен — его слушает захват), клип по ссылке.
@@ -2252,7 +2798,16 @@
       App.rerender();
       await wait(800);
       await Clip.setLink('https://www.youtube.com/watch?v=' + vidArg);
-      await wait(4000);
+      for (let k = 0; k < 300 && !Clip._readyForTest(); k++) await wait(100);
+      const playerReady = Clip._readyForTest();
+      console.warn(`SELFTEST clipsync player: status=${Clip.status} ready=${playerReady} frame=${Boolean($('.clip-frame'))} message=${Clip.message}`);
+      if (playerReady && Player.audio.paused) {
+        // Пока ждали YouTube, короткое гостевое превью могло закончиться.
+        Player.seek(1);
+        Player.play();
+        await wait(1200);
+      }
+      await wait(1800);
       Clip._calKey = Clip.trackId + '|' + Clip.videoId; // подстройку запускает сам тест, по шагам
       s.clipAuto = true;
       const steps = planArg !== '-' ? [0] : vidArg === 'dQw4w9WgXcQ' ? [0, 20, 40, 60, 80, 100, 120, 140, 160, 180] : Array.from({ length: 14 }, (_, i) => i * 20);
@@ -2268,38 +2823,84 @@
       }
       if (Clip.sync.state === 'done') {
         const first = Clip.autoInfo.offset;
-        // точность удержания: расхождение по сообщениям YouTube в течение 4 секунд
+        if (Player.audio.paused) {
+          Player.seek(1);
+          Player.play();
+          await wait(2200);
+        }
+        // Точность удержания по сообщениям YouTube; цифры не подменяются оценкой.
         await wait(3000);
         const ds = [];
         for (let k = 0; k < 40; k++) {
-          const f = $('.clip-frame');
-          ds.push(Clip._driftForTest ? Clip._driftForTest() : NaN);
+          ds.push(Clip._driftForTest());
           await wait(100);
         }
         const v = ds.filter((x) => isFinite(x));
         const mean = v.reduce((a, b) => a + Math.abs(b), 0) / (v.length || 1);
-        console.warn(`SELFTEST clipsync hold: mean|drift|=${(mean * 1000).toFixed(0)}ms max=${(Math.max(...v.map(Math.abs)) * 1000).toFixed(0)}ms n=${v.length}`);
-        // повторный замер с того же места — должен дать тот же сдвиг
-        Player.seek(Math.max(1, Player.audio.currentTime - 12));
+        console.warn(`SELFTEST clipsync hold: mean|drift|=${(mean * 1000).toFixed(0)}ms max=${v.length ? (Math.max(...v.map(Math.abs)) * 1000).toFixed(0) : '-'}ms n=${v.length}`);
+        console.warn(`SELFTEST clipsync diag: ${JSON.stringify(Clip._diagForTest())}`);
+
+        const beforePause = Clip._diagForTest();
+        Player.pause();
+        await wait(1800);
+        const paused = Clip._diagForTest();
+        const pauseOk = paused.mounts.every((m, i) => m.filterSamples === 0 && m.history.length === beforePause.mounts[i].history.length);
+        console.warn(`SELFTEST clipsync pause: ok=${pauseOk} filter=${paused.mounts.map((m) => m.filterSamples)}`);
+        Player.seek(1);
+        Player.play();
+        await wait(2200);
+        const beforeSeek = Clip._diagForTest();
+        Player.seek(3);
+        await wait(1700);
+        const afterSeek = Clip._diagForTest();
+        const seekOk = afterSeek.mounts.every((m, i) => m.corrections === beforeSeek.mounts[i].corrections);
+        console.warn(`SELFTEST clipsync seek: ok=${seekOk} corrections=${afterSeek.mounts.map((m) => m.corrections)}`);
+        if (!pauseOk || !seekOk) throw new Error('clipsync pause/seek regression');
+
+        // Повторный замер с того же места — должен дать тот же сдвиг.
+        Player.seek(1);
         await wait(2500);
         await Clip.calibrate(true);
-        console.warn(`SELFTEST clipsync repeat: first=${first} second=${Clip.autoInfo ? Clip.autoInfo.offset : '-'} diff=${Clip.autoInfo ? ((Clip.autoInfo.offset - first) * 1000).toFixed(0) + 'ms' : '-'}`);
+        console.warn(`SELFTEST clipsync repeat: state=${Clip.sync.state} first=${first} second=${Clip.autoInfo ? Clip.autoInfo.offset : '-'} diff=${Clip.autoInfo ? ((Clip.autoInfo.offset - first) * 1000).toFixed(0) + 'ms' : '-'}`);
+        console.warn(`SELFTEST clipsync final: ${JSON.stringify(Clip._diagForTest())}`);
+      } else {
+        console.warn(`SELFTEST clipsync unavailable: состояние=${Clip.sync.state}; реальные drift/pause/seek не проверены`);
       }
       $('.vz-gear') && $('.vz-gear').click();
       await wait(700);
     } else if (extra.startsWith('clipq')) {
-      // Клип в заданном качестве (clipq1080, clipq480, clipqauto)
+      // Клип в заданном качестве (clipq1080, clipq480, clipqauto, clipq2160@<id 4K-ролика>)
+      const [wantedQuality, wantedVideo] = extra.slice(5).split('@');
       App.settings.viz.bg = 'clip';
       App.settings.viz.style = 'waves';
-      App.settings.viz.clipQ = extra.slice(5) || 'auto';
+      App.settings.viz.clipQ = wantedQuality || 'auto';
       await silentPlay(0);
       App.rerender();
       await wait(1200);
-      await Clip.setLink('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+      await Clip.setLink('https://www.youtube.com/watch?v=' + (wantedVideo || 'dQw4w9WgXcQ'));
       await wait(12000);
       const f = $('.clip-frame');
       const box = $('.clip-box');
-      console.warn(`SELFTEST clipq: want=${Clip.quality} actual=${Clip.actualQuality || '?'} frame=${f ? f.clientWidth + 'x' + f.clientHeight : '-'} box=${box ? box.clientWidth + 'x' + box.clientHeight : '-'} dpr=${devicePixelRatio} visible=${box && box.classList.contains('clip-on')}`);
+      const qdiag = Clip._diagForTest().mounts[0] || {};
+      console.warn(`SELFTEST clipq: want=${Clip.quality} actual=${Clip.actualQuality || '?'} frame=${f ? f.clientWidth + 'x' + f.clientHeight : '-'} box=${box ? box.clientWidth + 'x' + box.clientHeight : '-'} dpr=${devicePixelRatio} visible=${box && box.classList.contains('clip-on')} reported=${qdiag.quality || '?'} matched=${qdiag.qualityMatched} requests=${qdiag.qualityRequests} available=${JSON.stringify(qdiag.qualityLevels || [])}`);
+      if (wantedQuality === '2160' && qdiag.qualityMatched) {
+        Clip.setQuality('1440');
+        await wait(3500);
+        console.warn(`SELFTEST clipq switch2K: actual=${Clip.actualQuality || '?'} diag=${(Clip._diagForTest().mounts[0] || {}).quality || '?'}`);
+        Clip.setQuality('2160');
+        await wait(5000);
+        const back = Clip._diagForTest().mounts[0] || {};
+        console.warn(`SELFTEST clipq back4K: actual=${Clip.actualQuality || '?'} matched=${back.qualityMatched} sameFrame=${$('.clip-frame') === f}`);
+        for (let i = 0; i < 30 && back.state !== 1; i++) await wait(100);
+        Player.seek(15);
+        let seek = {};
+        for (let i = 0; i < 30; i++) {
+          seek = Clip._diagForTest().mounts[0] || {};
+          if (seek.seekKind === 'track' && Math.abs((seek.seekTarget ?? -1) - 15) < 0.01 && seek.seekLatencyMs != null) break;
+          await wait(100);
+        }
+        console.warn(`SELFTEST clipseek live: kind=${seek.seekKind} target=${seek.seekTarget} ackMs=${seek.seekLatencyMs}`);
+      }
       $('.vz-gear') && $('.vz-gear').click();
       await wait(700);
     } else if (extra === 'cliptest') {
@@ -2321,6 +2922,261 @@
       console.warn(`SELFTEST fake key: ok=${r.ok} msg=${r.ok ? '' : r.error.message.length + 'chars'} code=${r.ok ? '' : r.error.code}`);
       $('.vz-gear') && $('.vz-gear').click();
       await wait(700);
+    } else if (extra === 'ringseek') {
+      // Реальная мышь и клавиатура на эллиптической шкале: нажатие, перетаскивание, Home и стрелки.
+      localStorage.setItem('zg.waveScene', 'rings');
+      if ($('#waveCosmos').dataset.scene !== 'rings') App.rerender();
+      await wait(1200);
+      AudioFX.setVolume(0);
+      Player._applyVolume = () => AudioFX.setVolume(0);
+      if (Player.source?.kind !== 'wave' || !Player.playing) $('#waveOrb').click();
+      for (let i = 0; i < 60 && (!Player.current || !isFinite(Player.audio.duration) || Player.audio.paused); i++) await wait(250);
+      await wait(700);
+      const ring = $('#waveRingSeek');
+      const visible = Boolean(ring?._ringGeometry?.duration) && getComputedStyle(ring).pointerEvents === 'auto' && ring.tabIndex === 0;
+      ring.focus({ preventScroll: true });
+      ring.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+      await wait(100);
+      const home = Math.abs(Player.audio.currentTime) < 1;
+      ring.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      await wait(100);
+      const arrow = Math.abs(Player.audio.currentTime - 5) < 1;
+      const point = (fraction) => {
+        const g = ring._ringGeometry;
+        const r = ring.getBoundingClientRect();
+        const a = -Math.PI / 2 + fraction * Math.PI * 2;
+        const x = Math.cos(a) * g.r;
+        const y = Math.sin(a) * g.r * g.flat;
+        return { x: r.left + g.x + x * Math.cos(g.tilt) - y * Math.sin(g.tilt), y: r.top + g.y + x * Math.sin(g.tilt) + y * Math.cos(g.tilt) };
+      };
+      const mouse = async (p, type) => window.zvuk.debug.mouse(p.x, p.y, type);
+      let p = point(0.25);
+      await mouse(p);
+      await mouse(p, 'mousePressed');
+      await mouse(p, 'mouseReleased');
+      await wait(150);
+      const clicked = Math.abs(Player.audio.currentTime - Player.audio.duration * 0.25) < 1.5;
+      p = point(0.48);
+      await mouse(p);
+      await mouse(p, 'mousePressed');
+      for (let i = 1; i <= 8; i++) {
+        await mouse(point(0.48 + i * 0.0125), 'mouseDragged');
+        await wait(25);
+      }
+      await mouse(point(0.58), 'mouseReleased');
+      await wait(150);
+      const dragged = Math.abs(Player.audio.currentTime - Player.audio.duration * 0.58) < 1.5;
+      const playBefore = Player.playing;
+      const center = point(0);
+      const g = ring._ringGeometry;
+      const rect = ring.getBoundingClientRect();
+      center.x = rect.left + g.x;
+      center.y = rect.top + g.y;
+      await mouse(center);
+      await mouse(center, 'mousePressed');
+      await mouse(center, 'mouseReleased');
+      await wait(100);
+      const centerButton = Player.playing !== playBefore;
+      if (!Player.playing) $('#waveOrb').click();
+      Player.seek(Player.audio.duration * 0.42);
+      await wait(600);
+      console.warn(`SELFTEST ringseek: visible=${visible} home=${home} arrow=${arrow} clicked=${clicked} dragged=${dragged} centerButton=${centerButton} progress=${(Player.audio.currentTime / Player.audio.duration).toFixed(2)} duration=${Player.audio.duration.toFixed(1)} radius=${ring._ringGeometry.r.toFixed(1)}`);
+    } else if (extra === 'waverings') {
+      // «Кольца Сатурна»: переключение туда-обратно и та же тема на главной.
+      localStorage.setItem('zg.waveScene', 'rings');
+      App.rerender();
+      await wait(1200);
+      const rings = $('#waveCosmos').dataset.scene === 'rings' && $('.wv-portal-label').textContent.includes('Кольца Сатурна');
+      $('#waveSceneBtn').click();
+      await wait(400);
+      const backToTide = $('#waveCosmos').dataset.scene === 'tide' && $('.wv-portal-label').textContent.includes('Орбитальный прилив');
+      $('#waveSceneBtn').click();
+      await wait(400);
+      $('.nav-item[data-view="home"]').click();
+      await wait(1500);
+      const homeRings = $('#homeRing')?.dataset.scene === 'rings' && $('.home-wave-signature').textContent === 'Кольца Сатурна';
+      $('.nav-item[data-view="wave"]').click();
+      await wait(1200);
+      console.warn(`SELFTEST waverings: rings=${rings} backToTide=${backToTide} homeRings=${homeRings} scene=${$('#waveCosmos').dataset.scene} label=${$('.wv-portal-label').textContent}`);
+    } else if (extra === 'wavefocus') {
+      // Погружение: настоящий клик, полный экран, выход по Esc и повторный вход.
+      const clickFocus = async () => {
+        const r = $('#waveFocusBtn').getBoundingClientRect();
+        const x = r.left + r.width / 2;
+        const y = r.top + r.height / 2;
+        await window.zvuk.debug.mouse(x, y);
+        await window.zvuk.debug.mouse(x, y, 'mousePressed');
+        await window.zvuk.debug.mouse(x, y, 'mouseReleased');
+      };
+      await clickFocus();
+      await wait(700);
+      const active = document.body.classList.contains('wave-focus');
+      const consoleOff = getComputedStyle($('.wv-console')).display === 'none';
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await wait(300);
+      const escaped = !document.body.classList.contains('wave-focus');
+      await clickFocus();
+      await wait(1000);
+      const restored = document.body.classList.contains('wave-focus');
+      console.warn(`SELFTEST wavefocus: active=${active} consoleOff=${consoleOff} escaped=${escaped} restored=${restored} full=${Boolean(document.fullscreenElement)} scene=${$('#waveCosmos').dataset.scene} hero=${Math.round($('.wv-hero').clientHeight)} viewport=${$('#scroller').clientHeight}`);
+    } else if (extra === 'wavefocusfx') {
+      // Планеты в полном экране с реально играющим превью: FPS и скачки угла.
+      AudioFX.setVolume(0);
+      Player._applyVolume = () => AudioFX.setVolume(0);
+      if (Player.source?.kind !== 'wave' || !Player.playing) $('#waveOrb').click();
+      for (let i = 0; i < 48 && (!Player.current || Player.audio.paused); i++) await wait(250);
+      const playing = Player.source?.kind === 'wave' && Player.playing && !Player.audio.paused;
+      Viz._solarMaxStep = 0;
+      Viz._solarJumps = 0;
+      // В служебном неактивном окне первый клик иногда лишь активирует его.
+      for (let attempt = 0; attempt < 2 && !document.fullscreenElement; attempt++) {
+        if (attempt && document.body.classList.contains('wave-focus')) {
+          document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+          await wait(250);
+        }
+        const r = $('#waveFocusBtn').getBoundingClientRect();
+        const x = r.left + r.width / 2;
+        const y = r.top + r.height / 2;
+        await window.zvuk.debug.mouse(x, y);
+        await window.zvuk.debug.mouse(x, y, 'mousePressed');
+        await window.zvuk.debug.mouse(x, y, 'mouseReleased');
+        await wait(300);
+      }
+      await wait(400);
+      const frames = Viz._infFrames || 0;
+      const started = performance.now();
+      await wait(6000);
+      const fps = ((Viz._infFrames || 0) - frames) * 1000 / (performance.now() - started);
+      const ring = $('#waveRingSeek');
+      const fullRing = Boolean(ring?._ringGeometry?.duration) && getComputedStyle(ring).pointerEvents === 'auto';
+      let fullKey = false;
+      let fullClick = false;
+      if (fullRing) {
+        ring.focus({ preventScroll: true });
+        ring.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+        ring.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+        fullKey = Math.abs(Player.audio.currentTime - 5) < 1;
+        const g = ring._ringGeometry;
+        const r = ring.getBoundingClientRect();
+        const x = Math.cos(g.tilt) * g.r;
+        const y = Math.sin(g.tilt) * g.r;
+        const px = r.left + g.x + x;
+        const py = r.top + g.y + y;
+        await window.zvuk.debug.mouse(px, py);
+        await window.zvuk.debug.mouse(px, py, 'mousePressed');
+        await window.zvuk.debug.mouse(px, py, 'mouseReleased');
+        await wait(150);
+        fullClick = Math.abs(Player.audio.currentTime - Player.audio.duration * 0.25) < 1.5;
+        Player.seek(Player.audio.duration * 0.42);
+        await wait(600);
+      }
+      const panel = $('.wv-copy').getBoundingClientRect();
+      console.warn(`SELFTEST wavefocusfx: playing=${playing} full=${Boolean(document.fullscreenElement)} scene=${$('#waveCosmos').dataset.scene} energy=${Viz.level.toFixed(3)} fps=${fps.toFixed(1)} infMs=${(Viz._infMs || 0).toFixed(2)} maxStep=${(Viz._solarMaxStep || 0).toFixed(4)} jumps=${Viz._solarJumps || 0} ring=${fullRing} fullKey=${fullKey} fullClick=${fullClick} panel=${Math.round(panel.width)}x${Math.round(panel.height)}`);
+    } else if (extra === 'orbital' || extra === 'orbitalsettings') {
+      // Глобальная тема: настоящий выбор в настройках, сохранение и совпадение на всех страницах.
+      const themeButton = $('[data-cseg="design"][data-val="orbit"]');
+      if (extra === 'orbitalsettings' && themeButton) {
+        themeButton.click();
+        await wait(250);
+        $('[data-cseg="design"][data-val="glass"]').click();
+        await wait(250);
+        themeButton.click();
+      } else Custom.set({ design: 'orbit' });
+      await wait(700);
+      const saved = (await window.zvuk.settings.get()).custom?.design === 'orbit';
+      const selected = extra === 'orbital' || ($$('.design-tile.on').length === 1 && themeButton.classList.contains('on'));
+      const firstTheme = $('.design-tile')?.dataset.val || '-';
+      const defaultOk = Custom.DEFAULTS.design === 'orbit' && (extra !== 'orbitalsettings' || firstTheme === 'orbit');
+      if (extra === 'orbitalsettings') themeButton.scrollIntoView({ block: 'center' });
+      console.warn(`SELFTEST orbital: on=${document.body.classList.contains('theme-orbit')} classic=${document.body.classList.contains('design-classic')} saved=${saved} selected=${selected} default=${Custom.DEFAULTS.design} first=${firstTheme} defaultOk=${defaultOk} accent=${getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()} stars=${getComputedStyle($('#bg'), '::after').animationName} view=${App.route.view}`);
+    } else if (extra === 'wavecalm') {
+      // Спокойный режим: статический кадр нарисован, затем цикл этой сцены остановлен.
+      Custom.set({ reduceMotion: true }, false);
+      App.rerender();
+      await wait(1300);
+      const canvas = $('#waveCosmos');
+      const before = Viz._infFrames || 0;
+      await wait(500);
+      const stopped = (Viz._infFrames || 0) === before;
+      console.warn(`SELFTEST wavecalm: staticFrame=${canvas.toDataURL().length > 10000} stopped=${stopped} reduce=${document.body.classList.contains('reduce-motion')}`);
+    } else if (extra === 'wavefx') {
+      // Пульт волны: выбор меняет свет сцены, кристалл управляет музыкой, холст действительно движется.
+      AudioFX.setVolume(0);
+      Player._applyVolume = () => AudioFX.setVolume(0);
+      const clear = $('#genreClear');
+      if (clear && !clear.classList.contains('hidden')) {
+        clear.click();
+        await wait(200);
+      }
+      $('[data-act="wave-set"][data-key="mood"][data-val="calm"]').click();
+      await wait(3500);
+      $('[data-act="wave-genre"][data-val="electronic"]').click();
+      await wait(1200);
+      const hero = $('.wv-hero');
+      const hr = hero.getBoundingClientRect();
+      hero.dispatchEvent(new PointerEvent('pointermove', { clientX: hr.left + hr.width * 0.8, clientY: hr.top + hr.height * 0.35, bubbles: true }));
+      await wait(150);
+      const parallax = !['', '0', '0.000'].includes(hero.style.getPropertyValue('--px'));
+      const pointerEarly = Viz._infPointerX || 0;
+      const canvas = $('#waveCosmos');
+      const snap = () => {
+        const s = canvas.toDataURL();
+        let hash = 0;
+        for (let i = 0; i < s.length; i += 97) hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
+        return hash;
+      };
+      const before = snap();
+      for (let i = 0; i < 24 && (!Player.current || !Player.audio.src || Player.audio.paused); i++) await wait(250);
+      const ready = Boolean(Player.current && Player.audio.src && Player.playing);
+      $('#waveOrb').click();
+      await wait(350);
+      const paused = !Player.playing;
+      $('#waveOrb').click();
+      await wait(450);
+      const resumed = Player.playing;
+      const frames = Viz._frames || 0;
+      const infFrames = Viz._infFrames || 0;
+      await wait(700);
+      const animated = snap() !== before && (Viz._frames || 0) > frames;
+      const pointerLate = Viz._infPointerX || 0;
+      const smooth = pointerEarly > 0 && pointerEarly < 0.29 && pointerLate > pointerEarly && pointerLate <= 0.301;
+      const infFps = ((Viz._infFrames || 0) - infFrames) / 0.7;
+      const steadyFrames = Viz._infFrames || 0;
+      await wait(1000);
+      const steadyFps = ((Viz._infFrames || 0) - steadyFrames) / 1;
+      console.warn(`SELFTEST wavefx: mood=${App.settings.wave.mood} selected=${Boolean($('.mood.on[data-val="calm"]'))} color=${hero.style.getPropertyValue('--mood-a')} genre=${App.settings.wave.genres.join(',')} count=${$('#genreCount').textContent} source=${Player.source?.kind} playing=${Player.playing} ready=${ready} paused=${paused} resumed=${resumed} parallax=${parallax} smooth=${smooth} animated=${animated} infFps=${infFps.toFixed(1)} steadyFps=${steadyFps.toFixed(1)} infMs=${(Viz._infMs || 0).toFixed(2)}`);
+    } else if (extra === 'recent') {
+      // Лента последних запросов: длинные значения и полный цикл «показать → выбрать → показать снова».
+      localStorage.setItem('zg.searches', JSON.stringify(['Земфира', 'Кино', 'Atomic Heart', 'Очень длинный поисковый запрос, который не должен сломать шапку', 'Музыка без слов', 'Synthwave']));
+      input.value = '';
+      input.focus();
+      showRecentTop();
+      await wait(500);
+      const shownBefore = $$('.recent-query:not(.hidden)', recentTopList).length;
+      const fitBefore = recentTopList.scrollWidth <= recentTopList.clientWidth + 1;
+      const expected = App.recentSearches()[0];
+      $('.recent-query').click();
+      await wait(1200);
+      const picked = App.route?.view === 'search' && App.route.params.q === expected;
+      navigate('wave');
+      input.value = '';
+      input.focus();
+      showRecentTop();
+      await wait(1200);
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      await wait(250);
+      const keyboard = recentTop.contains(document.activeElement) && !recentTop.classList.contains('hidden');
+      input.focus();
+      const rt = recentTop.getBoundingClientRect();
+      const right = $('.tb-right').getBoundingClientRect();
+      console.warn(`SELFTEST recent: shown=${shownBefore}/6 fit=${fitBefore} picked=${picked} first=${App.recentSearches()[0]} visible=${!recentTop.classList.contains('hidden')} keyboard=${keyboard} noOverlap=${rt.right <= right.left + 1}`);
+    } else if (extra === 'wavenarrow') {
+      // Узкое окно: декоративная сцена уменьшается, лента запросов полностью уступает место поиску.
+      await window.__TAURI__.core.invoke('debug_resize', { width: 1050, height: 740 });
+      await wait(1000);
+      const hero = $('.wv-hero').getBoundingClientRect();
+      const reactor = $('.wv-portal').getBoundingClientRect();
+      console.warn(`SELFTEST wavenarrow: width=${innerWidth} page=${document.documentElement.scrollWidth} hero=${Math.round(hero.width)} reactor=${Math.round(reactor.width)} recent=${getComputedStyle(recentTop).display} tune=${getComputedStyle($('.wv-tune-grid')).gridTemplateColumns}`);
     } else if (extra === 'classic') {
       Custom.set({ design: 'classic', compact: true }, false);
       followIndicator(600);

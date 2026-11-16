@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="shell" x1="18" y1="12" x2="110" y2="118" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#213b55"/><stop offset=".46" stop-color="#0c1727"/><stop offset="1" stop-color="#171329"/>
+    </linearGradient>
+    <radialGradient id="core" cx="0" cy="0" r="1" gradientTransform="translate(49 43) rotate(48) scale(51)">
+      <stop stop-color="#d9f4ff"/><stop offset=".2" stop-color="#87ccec"/><stop offset=".53" stop-color="#4e719d"/><stop offset=".8" stop-color="#263553"/><stop offset="1" stop-color="#0a1020"/>
+    </radialGradient>
+    <linearGradient id="orbit" x1="16" y1="90" x2="113" y2="30" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7a8fb5" stop-opacity=".15"/><stop offset=".45" stop-color="#e0f5ff"/><stop offset="1" stop-color="#b6a6f1" stop-opacity=".45"/>
+    </linearGradient>
+    <linearGradient id="z" x1="44" y1="43" x2="83" y2="86" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff"/><stop offset="1" stop-color="#b8ddf7"/>
+    </linearGradient>
+  </defs>
+  <rect x="3" y="3" width="122" height="122" rx="34" fill="url(#shell)" stroke="#b6dbf5" stroke-opacity=".25" stroke-width="1.5"/>
+  <path d="M17 81C7 67 33 41 67 28c34-13 62-12 64 1 2 13-26 39-60 52C37 94 20 94 17 81Z" fill="none" stroke="url(#orbit)" stroke-width="2.4" transform="rotate(-8 64 64)"/>
+  <circle cx="64" cy="64" r="34" fill="url(#core)" stroke="#d8efff" stroke-opacity=".36"/>
+  <path d="M41 49c8-15 28-23 44-12" fill="none" stroke="#fff" stroke-opacity=".38" stroke-width="2" stroke-linecap="round"/>
+  <path d="M45 45h39L45 83h39" fill="none" stroke="url(#z)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M18 80c9 13 36 5 64-9 26-13 45-29 48-40" fill="none" stroke="url(#orbit)" stroke-width="2.8" stroke-linecap="round"/>
+  <circle cx="108" cy="28" r="4.2" fill="#d9f4ff"/><circle cx="108" cy="28" r="8" fill="none" stroke="#a6dfff" stroke-opacity=".2"/>
+  <circle cx="26" cy="28" r="1.4" fill="#d9edff" fill-opacity=".7"/><circle cx="100" cy="101" r="1.2" fill="#d9edff" fill-opacity=".5"/>
+</svg>

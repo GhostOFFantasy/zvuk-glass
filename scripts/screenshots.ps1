@@ -31,6 +31,9 @@ $shots = [ordered]@{
   'login'     = @('--login-preview')
   'suggest'   = @('--route=artist:102622', '--extra=suggest')
   'waveplay'  = @('--route=wave', '--extra=waveplay')
+  'wavefx'    = @('--route=wave', '--extra=wavefx')
+  'recent'    = @('--route=wave', '--extra=recent')
+  'wavenarrow' = @('--route=wave', '--extra=wavenarrow')
   'collapse'  = @('--route=liked', '--extra=collapse')
   'npmenu'    = @('--route=release:6233892', '--extra=menunp')
   'npviz'     = @('--route=release:6233892', '--extra=np-play-viz')
@@ -54,6 +57,9 @@ $shots = [ordered]@{
   'ink'       = @('--route=release:6233892', '--extra=ink')
   'inkclip'   = @('--route=release:6233892', '--extra=inkclip')
   'lyrext'    = @('--route=home', '--extra=lyrext')
+  'clipfeedback' = @('--route=settings', '--extra=clipfeedback')
+  'orbitalsettings' = @('--route=settings', '--extra=orbitalsettings')
+  'fullaudit' = @('--route=home', '--extra=fullaudit')
 }
 $OnlyList = @($Only -split "," | Where-Object { $_ })
 foreach ($name in $shots.Keys) {
