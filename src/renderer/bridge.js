@@ -107,6 +107,7 @@
       log: (msg) => invoke('debug_log', { msg: String(msg) }).catch(() => {}),
       apiStats: () => invoke('debug_api_stats'),
       mouse: (x, y, kind) => invoke('debug_mouse', { x, y, kind: kind || null }).catch(() => {}),
+      resize: (width, height) => invoke('debug_resize', { width, height }),
     },
   };
 
@@ -119,7 +120,7 @@
         window.zvuk.debug.log(`[${k}] ` + a.map((x) => (x instanceof Error ? x.message : typeof x === 'object' ? JSON.stringify(x) : String(x))).join(' '));
       };
     }
-    window.addEventListener('error', (e) => window.zvuk.debug.log('[error] ' + e.message));
+    window.addEventListener('error', (e) => window.zvuk.debug.log(`[error] ${e.message} at ${e.filename}:${e.lineno}:${e.colno}\n${e.error?.stack || ''}`));
     window.addEventListener('unhandledrejection', (e) => window.zvuk.debug.log('[reject] ' + (e.reason && e.reason.message ? e.reason.message : e.reason)));
   }
 

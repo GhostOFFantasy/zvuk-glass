@@ -1,0 +1,680 @@
+/* Панель сцены визуализатора: общая для вкладки и полноэкранного плеера. */
+body .vz-panel.vz-controls {
+  width: min(380px, calc(100vw - 24px));
+  max-height: calc(100vh - 82px);
+  padding: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px !important;
+  background: rgba(18, 20, 28, 0.98) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.52), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+  color: var(--text, #f4f4f7);
+  font-family: var(--font, sans-serif);
+}
+
+body .np .vz-panel.vz-controls {
+  max-height: calc(100vh - 122px);
+}
+
+.vz-panel.vz-controls *,
+.vz-panel.vz-controls *::before,
+.vz-panel.vz-controls *::after {
+  box-sizing: border-box;
+}
+
+.vz-controls::-webkit-scrollbar {
+  width: 6px;
+}
+
+.vz-controls::-webkit-scrollbar-thumb {
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.vz-controls-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 17px 18px 15px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 19px 19px 0 0;
+  background: #14161f;
+}
+
+.vz-controls-head h2,
+.vz-controls-head p,
+.vz-section-head h3,
+.vz-section-head p,
+.vz-control-note {
+  margin: 0;
+}
+
+.vz-controls-head h2 {
+  font: 700 16px/1.25 var(--font, sans-serif);
+  letter-spacing: -0.15px;
+}
+
+.vz-controls-head p {
+  margin-top: 3px;
+  color: var(--text-3, rgba(255, 255, 255, 0.48));
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+.vz-controls-head .vz-panel-close {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 10px;
+  color: var(--text-3, rgba(255, 255, 255, 0.55));
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.vz-controls-head .vz-panel-close:hover {
+  color: var(--text, #fff);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.vz-controls-head .vz-panel-close .i {
+  width: 16px;
+  height: 16px;
+}
+
+.vz-controls-body {
+  padding: 2px 17px 16px;
+}
+
+.vz-section {
+  min-width: 0;
+  padding: 17px 0;
+}
+
+.vz-section + .vz-section {
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+}
+
+.vz-section:last-child {
+  padding-bottom: 2px;
+}
+
+.vz-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.vz-section-head > div {
+  min-width: 0;
+}
+
+.vz-section-head h3 {
+  color: var(--text, #f4f4f7);
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.vz-section-head p {
+  margin-top: 3px;
+  color: var(--text-3, rgba(255, 255, 255, 0.48));
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.vz-control-value {
+  flex: none;
+  min-width: 58px;
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 8px;
+  color: var(--text, #fff);
+  background: rgba(255, 255, 255, 0.045);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: center;
+}
+
+.vz-controls button {
+  font-family: inherit;
+}
+
+.vz-controls button:focus-visible,
+.vz-controls input:focus-visible {
+  outline: 2px solid var(--accent, #9d8cff);
+  outline-offset: 3px;
+}
+
+/* Стиль: схема, название и короткое пояснение вместо пяти одинаковых кнопок. */
+.vz-style-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.vz-style-card {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 112px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 14px;
+  color: var(--text-2, rgba(255, 255, 255, 0.7));
+  background: rgba(255, 255, 255, 0.028);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.vz-style-card:hover {
+  border-color: rgba(255, 255, 255, 0.17);
+  background: rgba(255, 255, 255, 0.055);
+  transform: translateY(-1px);
+}
+
+.vz-style-card.on {
+  border-color: color-mix(in srgb, var(--accent, #9d8cff) 72%, white 10%);
+  background: color-mix(in srgb, var(--accent, #9d8cff) 11%, rgba(255, 255, 255, 0.025));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent, #9d8cff) 20%, transparent);
+}
+
+.vz-style-preview {
+  display: block;
+  width: 100%;
+  height: 52px;
+  flex: none;
+  padding: 4px 7px;
+  overflow: hidden;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.19);
+}
+
+.vz-style-preview svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.vz-style-waves .vz-style-preview {
+  color: #8bc9ff;
+  background: linear-gradient(145deg, rgba(75, 151, 211, 0.15), rgba(75, 151, 211, 0.025));
+}
+
+.vz-style-aura .vz-style-preview {
+  color: #d2a4ff;
+  background: radial-gradient(circle at 50% 50%, rgba(178, 119, 232, 0.16), rgba(178, 119, 232, 0.025));
+}
+
+.vz-style-bars .vz-style-preview {
+  color: #8de2be;
+  background: linear-gradient(145deg, rgba(69, 174, 137, 0.13), rgba(69, 174, 137, 0.02));
+}
+
+.vz-style-orbit .vz-style-preview {
+  color: #ffabd0;
+  background: radial-gradient(circle at 50% 50%, rgba(224, 107, 161, 0.14), rgba(224, 107, 161, 0.02));
+}
+
+.vz-style-off .vz-style-preview {
+  color: #a9adba;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.vz-style-copy {
+  display: block;
+  min-width: 0;
+  min-height: 31px;
+  padding: 0 2px 2px;
+}
+
+.vz-style-copy b,
+.vz-style-copy small {
+  display: block;
+}
+
+.vz-style-copy b {
+  color: var(--text, #f4f4f7);
+  font-size: 12.5px;
+  line-height: 1.25;
+}
+
+.vz-style-copy small {
+  margin-top: 3px;
+  color: var(--text-3, rgba(255, 255, 255, 0.48));
+  font-size: 10.5px;
+  line-height: 1.3;
+}
+
+.vz-card-check {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 50%;
+  color: #11131a;
+  background: var(--accent, #9d8cff);
+  opacity: 0;
+  transform: scale(0.75);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.vz-card-check .i {
+  width: 12px;
+  height: 12px;
+}
+
+.vz-style-card.on .vz-card-check {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.vz-style-card.vz-style-off {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: 104px minmax(0, 1fr);
+  align-items: center;
+  min-height: 70px;
+}
+
+.vz-style-off .vz-style-copy {
+  min-height: 0;
+}
+
+/* Отклик: понятная шкала, текущее число и три рабочие предустановки. */
+.vz-response-presets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.vz-response-preset {
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 9px;
+  color: var(--text-2, rgba(255, 255, 255, 0.68));
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.vz-response-preset:hover {
+  color: var(--text, #fff);
+  background: rgba(255, 255, 255, 0.075);
+}
+
+.vz-response-preset.on {
+  border-color: color-mix(in srgb, var(--accent, #9d8cff) 65%, transparent);
+  color: var(--text, #fff);
+  background: color-mix(in srgb, var(--accent, #9d8cff) 19%, transparent);
+}
+
+.vz-response-preset:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.vz-controls .vz-range .range {
+  display: block;
+  width: 100%;
+  height: 6px;
+  margin: 10px 0 0;
+}
+
+.vz-controls .vz-range .range::-webkit-slider-thumb {
+  width: 18px;
+  height: 18px;
+}
+
+.vz-controls .vz-range .range:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.vz-range-scale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  color: var(--text-3, rgba(255, 255, 255, 0.45));
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.vz-control-note {
+  margin-top: 10px;
+  color: var(--text-3, rgba(255, 255, 255, 0.5));
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* Фон и затемнение. */
+.vz-bg-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.vz-bg-option {
+  display: flex;
+  min-width: 0;
+  min-height: 58px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 3px;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 11px;
+  color: var(--text-3, rgba(255, 255, 255, 0.52));
+  background: rgba(255, 255, 255, 0.028);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.vz-bg-option .i {
+  width: 18px;
+  height: 18px;
+}
+
+.vz-bg-option:hover {
+  color: var(--text, #fff);
+  background: rgba(255, 255, 255, 0.065);
+}
+
+.vz-bg-option.on {
+  border-color: color-mix(in srgb, var(--accent, #9d8cff) 60%, transparent);
+  color: var(--text, #fff);
+  background: color-mix(in srgb, var(--accent, #9d8cff) 14%, transparent);
+}
+
+.vz-controls .vz-file {
+  display: flex;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.vz-controls .vz-file .btn:first-child {
+  min-width: 0;
+  flex: 1;
+}
+
+.vz-controls .vz-file .btn.small {
+  height: 32px;
+}
+
+.vz-controls .vz-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  color: var(--text-2, rgba(255, 255, 255, 0.7));
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.vz-controls .vz-check .switch,
+.vz-controls .vz-auto-row .switch {
+  width: 40px;
+  height: 24px;
+  flex: none;
+}
+
+.vz-controls .vz-check .switch::after,
+.vz-controls .vz-auto-row .switch::after {
+  width: 18px;
+  height: 18px;
+}
+
+.vz-controls .vz-check .switch.on::after,
+.vz-controls .vz-auto-row .switch.on::after {
+  transform: translateX(16px);
+}
+
+.vz-video-pulse {
+  cursor: pointer;
+}
+
+.vz-dim {
+  margin-top: 15px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.vz-control-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.vz-control-head label {
+  color: var(--text-2, rgba(255, 255, 255, 0.72));
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Клип: прежние данные и действия, но с ровными рядами и переносами. */
+.vz-controls .vz-clip {
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.025);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.vz-clip-meta {
+  min-width: 0;
+}
+
+.vz-controls .vz-clip-meta > span {
+  line-height: 1.45;
+}
+
+.vz-controls .vz-clip-btns {
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.vz-controls .vz-clip-btns .btn.small,
+.vz-controls .vz-offset .btn.small {
+  height: 30px;
+  padding: 0 10px;
+}
+
+.vz-controls .vz-auto {
+  margin-top: 13px;
+  padding-top: 13px;
+}
+
+.vz-controls .vz-auto-row {
+  gap: 10px;
+}
+
+.vz-controls .vz-auto-row > span {
+  min-width: 0;
+  font-size: 12.5px;
+}
+
+.vz-controls .vz-auto-row > span small {
+  margin-top: 2px;
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
+.vz-controls .vz-q-opts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.vz-controls .vz-qb {
+  min-width: 0;
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 11px;
+}
+
+.vz-controls .vz-qb.on {
+  border-color: color-mix(in srgb, var(--accent, #9d8cff) 60%, transparent);
+}
+
+.vz-controls .vz-qb:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.vz-controls .vz-sync {
+  align-items: flex-start;
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.vz-controls .vz-sync .i,
+.vz-controls .vz-sync.run i {
+  margin-top: 3px;
+}
+
+.vz-controls .vz-prefs {
+  margin-top: 12px;
+  padding-top: 5px;
+}
+
+.vz-controls .vz-prefs .vz-check {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  justify-content: initial;
+  gap: 10px;
+  margin-top: 0;
+  padding: 7px 0;
+  cursor: pointer;
+}
+
+.vz-controls .vz-offset {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 7px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.065);
+}
+
+.vz-controls .vz-offset span {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.vz-controls .vz-offset b {
+  min-width: 0;
+  align-self: center;
+  text-align: left;
+}
+
+.vz-controls .vz-q {
+  margin-top: 13px;
+  padding-top: 13px;
+}
+
+.vz-controls .vz-q-head {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.vz-controls .vz-q-head small {
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+@media (max-width: 520px) {
+  body .vz-panel.vz-controls,
+  body .np .vz-panel.vz-controls {
+    right: 10px;
+    width: calc(100vw - 20px);
+  }
+}
+
+@media (max-width: 360px) {
+  .vz-controls-head {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .vz-controls-body {
+    padding-right: 13px;
+    padding-left: 13px;
+  }
+
+  .vz-style-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .vz-style-card,
+  .vz-style-card.vz-style-off {
+    display: grid;
+    grid-column: auto;
+    grid-template-columns: 96px minmax(0, 1fr);
+    align-items: center;
+    min-height: 70px;
+  }
+
+  .vz-style-copy {
+    min-height: 0;
+  }
+
+  .vz-bg-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body .vz-panel.vz-controls {
+    animation: none !important;
+  }
+
+  .vz-panel.vz-controls *,
+  .vz-panel.vz-controls *::before,
+  .vz-panel.vz-controls *::after {
+    scroll-behavior: auto !important;
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .vz-style-card:hover {
+    transform: none;
+  }
+}

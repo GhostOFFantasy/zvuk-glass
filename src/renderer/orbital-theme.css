@@ -399,18 +399,45 @@ body:not(.design-classic) .seek-tile, body:not(.design-classic) .grad-tile { bor
 body:not(.design-classic) .kbd-list kbd { border-radius: 5px; font-family: var(--font-tech); }
 body:not(.design-classic) .ver-pill { border-radius: 5px; }
 
-/* ---------- Полноэкранный плеер: прежняя центральная компоновка, новое оформление ---------- */
+/* ---------- Полноэкранный плеер: планета и компактные спутники очереди ---------- */
 body:not(.design-classic) .np-bg { background: #040811; }
 body:not(.design-classic) .np-art { filter: blur(48px) saturate(1.25) brightness(0.34); transform: scale(1.12); }
 body:not(.design-classic) .np-bg::after { background: radial-gradient(80% 72% at 50% 38%, transparent, rgba(2,6,14,0.72)); }
 body:not(.design-classic) .np-close { top: 13px; left: 18px; border-radius: 7px 13px 7px 13px; }
 body:not(.design-classic) .np-source { top: 21px; color: var(--text-3); font: 500 9px var(--font-tech); letter-spacing: 2px; }
-body:not(.design-classic) .np-flow::before { content: ''; position: absolute; left: 50%; top: 50%; width: calc(var(--cf) * 1.65); height: calc(var(--cf) * 0.47); border: 1px solid color-mix(in srgb, var(--accent) 21%, transparent); border-radius: 50%; transform: translate(-50%, -50%) rotate(-13deg); pointer-events: none; animation: npOrbitLine 42s linear infinite; }
+body:not(.design-classic) .np-flow::before {
+  content: ''; position: absolute; left: 50%; top: 50%; width: calc(var(--cf) * 2.75); height: calc(var(--cf) * 0.64);
+  border: 1px solid color-mix(in srgb, var(--accent) 17%, transparent); border-left-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  border-right-color: color-mix(in srgb, var(--accent) 35%, transparent); border-radius: 50%;
+  transform: translate(-50%, -50%) rotate(-13deg); pointer-events: none; animation: npOrbitLine 70s linear infinite;
+  box-shadow: 0 0 30px color-mix(in srgb, var(--accent) 3%, transparent); will-change: transform;
+}
 body.paused .np-flow::before { animation-play-state: paused; }
 @keyframes npOrbitLine { to { transform: translate(-50%, -50%) rotate(347deg); } }
 body:not(.design-classic) .np-flow::after { opacity: 0.35; }
-body:not(.design-classic) .cf-tilt { border-radius: 9px 32px 9px 32px; }
-body:not(.design-classic) .cf-item.cur .cf-tilt { box-shadow: 0 38px 90px rgba(0,0,0,0.52), 0 0 0 1px rgba(231,243,255,0.16), 0 0 55px color-mix(in srgb, var(--accent) 17%, transparent); }
+body:not(.design-classic) .cf-tilt { border-radius: 50%; }
+body:not(.design-classic) .cf-art { box-shadow: inset 0 0 0 1px rgba(224,241,255,0.13); }
+body:not(.design-classic) .cf-item.cur .cf-tilt { box-shadow: 0 38px 90px rgba(0,0,0,0.52), 0 0 0 1px rgba(231,243,255,0.16), 0 0 70px color-mix(in srgb, var(--accent) 20%, transparent); }
+body:not(.design-classic) .cf-item.cur .cf-card::before {
+  content: ''; position: absolute; inset: -7%; border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-top-color: color-mix(in srgb, var(--accent) 58%, transparent); border-radius: 50%;
+  transform: rotateX(67deg) rotateZ(-14deg); pointer-events: none;
+}
+body:not(.design-classic) .cf-item.side .cf-dim { opacity: 0.25; }
+body:not(.design-classic) .cf-item.side .cf-label {
+  left: 50%; right: auto; top: calc(100% + 30px); bottom: auto; width: 210px; margin-left: -105px; padding: 9px 12px 10px;
+  border: 1px solid rgba(180,216,244,0.1); border-radius: 7px 15px 7px 15px; text-align: center;
+  background: linear-gradient(145deg, rgba(17,34,53,0.94), rgba(7,17,30,0.94)); box-shadow: 0 10px 25px rgba(0,3,12,0.3);
+  font: 550 13px/1.25 var(--font-display); opacity: 0.94; transform: scale(var(--label-scale, 1)); transform-origin: 50% 0;
+  transition: opacity 0.35s ease, background 0.3s ease, border-color 0.3s ease;
+}
+body:not(.design-classic) .cf-item.side .cf-label .tag { margin-bottom: 5px; padding: 0; background: none; color: color-mix(in srgb, var(--accent) 74%, #d9efff); font: 500 8px var(--font-tech); letter-spacing: 1.5px; }
+body:not(.design-classic) .cf-item.side .cf-label .ttl { padding: 0; transform: none; }
+body:not(.design-classic) .cf-item.side .cf-label small { margin-top: 3px; padding: 0; transform: none; font: 450 10px var(--font); color: var(--text-3); }
+body:not(.design-classic) .cf-item.side .cf-label .go { display: none; }
+body:not(.design-classic) .cf-item.far:not(.hover) .cf-label { opacity: 0; }
+body:not(.design-classic) .cf-item.side.hover .cf-label { border-color: color-mix(in srgb, var(--accent) 30%, transparent); background: linear-gradient(145deg, rgba(24,46,70,0.97), rgba(8,20,35,0.97)); }
+body:not(.design-classic) .cf-item.side.hover .cf-label .tag { background: none; color: var(--accent); transform: none; }
 body:not(.design-classic) .np-title { font-size: clamp(24px, 2.4vw, 37px); font-weight: 600; letter-spacing: -1.1px; }
 body:not(.design-classic) .np-artist { color: var(--text-3); font-size: 14px; }
 body:not(.design-classic) .np-times { font: 500 9px var(--font-tech); }
@@ -426,7 +453,6 @@ body:not(.design-classic) .np-vol .slider.vol { flex-basis: 90px; }
 body:not(.design-classic) .np-vol-val { font: 500 10px var(--font-tech); }
 body:not(.design-classic) .np-eq { border-radius: 8px 24px 8px 24px; background: rgba(8,17,30,0.97); }
 body:not(.design-classic) .np-lyrics .lyrics { font-weight: 600; }
-body:not(.design-classic) .cf-label .tag { border-radius: 5px; }
 
 /* ---------- Визуализатор и эквалайзер ---------- */
 body:not(.design-classic) .view.full { padding: 11px; }

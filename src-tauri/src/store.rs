@@ -11,12 +11,13 @@ use serde_json::{json, Map, Value};
 use crate::crypt;
 
 // seenVersion — версия, о новинках которой пользователь уже знает (плашка «Что нового» после обновления)
-pub const PUBLIC_KEYS: [&str; 13] = [
+pub const PUBLIC_KEYS: [&str; 14] = [
     "quality",
     "volume",
     "shuffle",
     "repeat",
     "liquidGlass",
+    "performanceMode",
     "wave",
     "custom",
     "eq",
@@ -34,6 +35,7 @@ fn defaults() -> Map<String, Value> {
         "shuffle": false,
         "repeat": "off",
         "liquidGlass": false,
+        "performanceMode": "auto",
         "wave": { "energy": null, "fun": null, "language": null, "instrumental": false, "genres": [], "popularity": null },
         "custom": {},
         "eq": null,

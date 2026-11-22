@@ -183,11 +183,7 @@ async fn auth_token(app: S<'_>, token: String) -> Result<Value, ApiError> {
     app.client.set_token(Some(token.clone()));
     *app.profile.lock().unwrap() = Some(p);
     if !app.args.demo() {
-        if let Err(message) = app.store.write_secret("token", Some(&token)) {
-            app.client.set_token(None);
-            *app.profile.lock().unwrap() = None;
-            return Err(err("SECRET_STORAGE", message));
-        }
+        let _ = app.store.write_secret("token", Some(&token));
     }
     Ok(auth_json(&app))
 }
@@ -906,11 +902,11 @@ fn create_window(handle: &AppHandle, app: &Arc<App>) -> tauri::Result<WebviewWin
                 tauri::webview::NewWindowResponse::Deny
             }
         });
+    if shot || a.portable {
+        b = b.data_directory(data_dir(handle, a).join("webview"));
+    }
     if shot {
-        b = b
-            .data_directory(data_dir(handle, a).join("webview"))
-            .focused(false)
-            .skip_taskbar(true);
+        b = b.focused(false).skip_taskbar(true);
     } else if let (Some(x), Some(y)) = (num("x"), num("y")) {
         b = b.position(x, y);
     } else {
@@ -936,10 +932,12 @@ fn create_window(handle: &AppHandle, app: &Arc<App>) -> tauri::Result<WebviewWin
         let w2 = win.clone();
         let hidden = std::sync::atomic::AtomicBool::new(false);
         win.on_window_event(move |e| match e {
-            WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
-                if !shot {
+            WindowEvent::Moved(_) | WindowEvent::Resized(_) | WindowEvent::Focused(_) => {
+                if !shot && !matches!(e, WindowEvent::Focused(_)) {
                     save_bounds(&app2, &w2);
                 }
+                // При восстановлении Windows не всегда присылает Resized: Focused снимает
+                // ложный win-hidden, иначе видимое окно могло остаться с остановленной сценой.
                 let min = w2.is_minimized().unwrap_or(false);
                 if hidden.swap(min, std::sync::atomic::Ordering::SeqCst) != min {
                     let _ = w2.emit("win:hidden", min);
@@ -1240,7 +1238,7 @@ pub fn run() {
                         .args
                         .extra
                         .as_deref()
-                        .is_some_and(|e| e.starts_with("clipsync") || e == "lyrext");
+                        .is_some_and(|e| e.starts_with("clipsync") || e == "lyrext" || e == "pulsetest");
                 let limit = if long { 300 } else { 60 };
                 std::thread::spawn(move || {
                     std::thread::sleep(Duration::from_secs(limit));

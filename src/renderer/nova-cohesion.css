@@ -1,0 +1,148 @@
+/* NOVA Cohesion — единая орбитальная система для всех экранов и вложенных панелей. */
+body.theme-orbit {
+  --orbit-space: #0b0f16;
+  --orbit-panel: #121720;
+  --orbit-raised: #171e28;
+  --orbit-line: rgba(205,211,235,.105);
+  --orbit-mint: #ace8d0;
+  --orbit-lilac: #bcb2f4;
+}
+body.theme-orbit .main { background: radial-gradient(ellipse at 96% 0%,rgba(188,178,244,.035),transparent 32%),#101319; }
+body.theme-orbit .page-title, body.theme-orbit .greet, body.theme-orbit .hero h1,
+body.theme-orbit .top-info h2, body.theme-orbit .pulse-head h1 { font-family: var(--font-display); font-weight: 600; }
+body.theme-orbit .page-kicker, body.theme-orbit .home-wave-kicker, body.theme-orbit .wv-section-kicker,
+body.theme-orbit .pulse-kicker, body.theme-orbit .settings-group .set-title { color: var(--text-3); letter-spacing: .85px; }
+body.theme-orbit ::selection { color: #fff; background: rgba(188,178,244,.28); }
+body.theme-orbit button:focus-visible, body.theme-orbit input:focus-visible { outline-color: var(--orbit-mint); }
+
+/* Общие карточки, списки и выбранные строки. */
+body.theme-orbit .card { border-radius: 18px; }
+body.theme-orbit .card .cover { box-shadow: 0 12px 28px rgba(0,0,0,.23); }
+body.theme-orbit .card.round::before { border-color: rgba(188,178,244,.18); }
+body.theme-orbit .tracks { padding: 6px; border: 1px solid var(--orbit-line); border-radius: 18px; background: rgba(255,255,255,.012); }
+body.theme-orbit .tracks-head { min-height: 30px; border-bottom: 1px solid rgba(205,211,235,.065); }
+body.theme-orbit .tr { border-radius: 12px; }
+body.theme-orbit .tr.playing { background: rgba(172,232,208,.075); box-shadow: inset 2px 0 0 var(--orbit-mint); }
+body.theme-orbit .section-head .arrows .icon-btn, body.theme-orbit .actions .icon-btn { border: 1px solid var(--orbit-line); background: rgba(255,255,255,.028); }
+body.theme-orbit .chip.on, body.theme-orbit .seg button.on { color: #14231d; background: var(--orbit-mint); }
+body.theme-orbit .hero { border-bottom: 1px solid var(--orbit-line); }
+body.theme-orbit .hero .hero-cover { border: 1px solid rgba(255,255,255,.08); }
+body.theme-orbit .top-hero { background: radial-gradient(ellipse at 82% 30%,rgba(188,178,244,.15),transparent 43%),radial-gradient(ellipse at 15% 100%,rgba(172,232,208,.06),transparent 44%),#141922; }
+body.theme-orbit .top-info .kind { color: var(--orbit-mint); }
+body.theme-orbit .top-info h2 { letter-spacing: -2.5px; }
+body.theme-orbit .tp-card { border: 1px solid rgba(255,255,255,.075); box-shadow: 0 18px 38px rgba(0,0,0,.28); }
+
+/* Все боковые панели, очередь, текст и Нова. */
+body.theme-orbit .side-panel { border: 1px solid var(--orbit-line); border-radius: 22px; background: #12161e; box-shadow: 0 20px 55px rgba(0,0,0,.24); }
+body.theme-orbit .sp-tabs { border-bottom: 1px solid var(--orbit-line); }
+body.theme-orbit .seg { background: #0d1219; box-shadow: inset 0 0 0 1px var(--orbit-line); }
+body.theme-orbit .qi { border-radius: 12px; }
+body.theme-orbit .qi.cur { background: rgba(172,232,208,.075); box-shadow: inset 2px 0 0 var(--orbit-mint); }
+body.theme-orbit .lyrics .ln { border-radius: 11px; }
+body.theme-orbit .lyrics .ln.cur { color: var(--orbit-mint); background: rgba(172,232,208,.055); box-shadow: inset 2px 0 0 rgba(172,232,208,.55); text-shadow: none; }
+body.theme-orbit .lyr-src { border: 1px solid var(--orbit-line); border-radius: 12px; background: #171d27; }
+body.theme-orbit .nv-message, body.theme-orbit .nv-track-card, body.theme-orbit .nv-lyric-card,
+body.theme-orbit .nv-sync-card { border: 1px solid var(--orbit-line); border-radius: 16px; background: var(--orbit-raised); }
+body.theme-orbit .nv-quick-actions button { border-radius: 13px; box-shadow: inset 0 0 0 1px var(--orbit-line); }
+body.theme-orbit .nv-halo { border-color: rgba(188,178,244,.17); }
+
+/* Настройки, эквалайзер, пресеты наушников и мини-эквалайзер. */
+body.theme-orbit .set-card, body.theme-orbit .eq-panel, body.theme-orbit .hq-model,
+body.theme-orbit .np-eq, body.theme-orbit .ctx, body.theme-orbit .modal-card,
+body.theme-orbit .suggest, body.theme-orbit .toast { border: 1px solid var(--orbit-line); border-radius: 20px; background-color: var(--orbit-panel); box-shadow: inset 0 1px 0 rgba(255,255,255,.025),0 18px 48px rgba(0,0,0,.22); }
+body.theme-orbit .set-card { box-shadow: inset 0 1px 0 rgba(255,255,255,.025); }
+body.theme-orbit .hq-model { border-radius: 20px; background: var(--orbit-panel); }
+body.theme-orbit .hq-preset { border-color: var(--orbit-line); border-radius: 15px; background: rgba(255,255,255,.018); }
+body.theme-orbit .hq-preset.active { border-color: rgba(172,232,208,.3); background: rgba(172,232,208,.045); }
+body.theme-orbit .hq-state.active { color: var(--orbit-mint); background: rgba(172,232,208,.08); }
+body.theme-orbit .np-eq .ne-presets { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 6px; max-height: 96px; margin: 10px 0 0; padding: 2px 3px 2px 0; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; -webkit-mask-image: none; mask-image: none; }
+body.theme-orbit .np-eq .ne-presets .chip { width: 100%; min-width: 0; margin-left: 0 !important; padding: 0 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.theme-orbit .np-eq .ne-foot { flex-wrap: wrap; }
+body.theme-orbit .np-actions { border: 1px solid var(--orbit-line); background: rgba(16,22,30,.92); }
+body.theme-orbit .np-actions .chip.on { color: var(--orbit-mint); background: rgba(172,232,208,.1); }
+body.theme-orbit .pulse-side > section, body.theme-orbit .pulse-dialog { border: 1px solid var(--orbit-line); background-color: #141a23; box-shadow: inset 0 1px 0 rgba(255,255,255,.025),0 20px 55px rgba(0,0,0,.22); }
+
+/* Главная: орбитальная карта вместо эквалайзера и вложенной карточки. */
+body.theme-orbit .home-wave { background: radial-gradient(ellipse at 78% 38%,rgba(188,178,244,.09),transparent 36%),radial-gradient(ellipse at 10% 100%,rgba(172,232,208,.05),transparent 40%),#10151c; }
+body.theme-orbit .home-orbit-stage { position: relative; inset: auto; min-width: 0; margin: 0; padding: 0; overflow: visible; border: 0; border-radius: 0; background: transparent; box-shadow: none; pointer-events: none; }
+.home-orbital-map { position: absolute; inset: 34px 0 50px; pointer-events: none; }
+.home-orbit-line { position: absolute; left: 50%; top: 45%; display: block; border: 1px solid rgba(188,178,244,.24); border-radius: 50%; transform: translate(-50%,-50%) rotate(-17deg); }
+.home-orbit-line.l1 { width: 104%; height: 42%; }
+.home-orbit-line.l2 { width: 74%; height: 78%; border-color: rgba(172,232,208,.17); transform: translate(-50%,-50%) rotate(27deg); }
+.home-orbit-line.l3 { width: 118%; height: 23%; border-color: rgba(255,255,255,.09); transform: translate(-50%,-50%) rotate(4deg); }
+.home-orbit-moon { position: absolute; display: block; width: 8px; height: 8px; border-radius: 50%; background: var(--orbit-mint); box-shadow: 0 0 16px rgba(172,232,208,.35); animation: orbitMoonFloat 4.8s ease-in-out infinite; }
+.home-orbit-moon.m1 { top: 19%; right: 10%; }
+.home-orbit-moon.m2 { left: 7%; bottom: 22%; width: 6px; height: 6px; background: var(--orbit-lilac); animation-delay: -2.1s; }
+.home-orbit-coordinate { position: absolute; color: var(--text-3); font-size: 6px; letter-spacing: .85px; white-space: nowrap; }
+.home-orbit-coordinate.c1 { top: 3%; left: 6%; }
+.home-orbit-coordinate.c2 { top: 43%; right: 1%; color: rgba(172,232,208,.58); }
+.home-orbit-coordinate.c3 { left: 4%; bottom: 4%; }
+body.theme-orbit .home-wave-play { position: absolute; top: 45%; left: 50%; right: auto; display: grid; place-items: center; width: 78px; height: 78px; margin: 0; border: 1px solid rgba(172,232,208,.45); border-radius: 50%; color: var(--orbit-mint); background: #111c22; box-shadow: 0 0 0 10px rgba(172,232,208,.035),0 0 42px rgba(172,232,208,.09); pointer-events: auto; transform: translate(-50%,-50%); transition: transform .28s var(--nova-ease),background .2s ease; }
+body.theme-orbit .home-wave-play::before { display: block; content: ''; position: absolute; inset: -13px; border: 1px solid rgba(172,232,208,.16); border-top-color: rgba(172,232,208,.65); border-radius: 50%; animation: orbitSpin 22s linear infinite; }
+body.theme-orbit .home-wave-play::after { display: none; }
+body.theme-orbit .home-wave-play > .i, body.theme-orbit .home-wave-play.playing > .i { width: 27px; height: 27px; color: var(--orbit-mint); filter: none; }
+body.theme-orbit .home-wave-play:hover { color: #14231d; background: var(--orbit-mint); transform: translate(-50%,-50%) scale(1.045); }
+body.theme-orbit .home-wave-play:hover > .i { color: #14231d; }
+body.theme-orbit .home-wave-play:active { transform: translate(-50%,-50%) scale(.97); }
+body.theme-orbit .home-scope-caption { position: absolute; left: 50%; bottom: 13px; display: flex; flex-direction: column; align-items: center; gap: 5px; width: max-content; margin: 0; padding: 0; border: 0; transform: translateX(-50%); }
+body.theme-orbit .home-scope-caption > span { color: var(--text-3); font-size: 6px; letter-spacing: 1px; }
+body.theme-orbit .home-scope-caption > b { color: var(--text-2); font-size: 10px; font-weight: 500; }
+
+/* Оконная орбита: общая карта на всей сцене, без панели внутри панели. */
+body.theme-orbit:not(.wave-focus) .orbit-observatory { background: radial-gradient(ellipse at 76% 40%,rgba(188,178,244,.105),transparent 38%),radial-gradient(ellipse at 12% 100%,rgba(172,232,208,.04),transparent 40%),#10141b; }
+body.theme-orbit:not(.wave-focus) .wv-portal { position: relative; inset: auto; align-self: stretch; min-height: 0; margin: 45px 24px 24px 0; padding: 0; overflow: visible; border: 0; border-radius: 0; background: transparent; box-shadow: none; pointer-events: none; }
+.wv-orbital-map { position: absolute; inset: 0; pointer-events: none; }
+.wv-map-label { position: absolute; top: 3px; left: 3%; right: 3%; display: flex; align-items: center; justify-content: space-between; color: var(--text-3); font-size: 7px; letter-spacing: 1.1px; }
+.wv-map-label > i { color: var(--orbit-mint); font-style: normal; font-size: 7px; }
+.wv-orbit-line { position: absolute; left: 50%; top: 45%; display: block; border: 1px solid rgba(188,178,244,.27); border-radius: 50%; transform: translate(-50%,-50%) rotate(-16deg); }
+.wv-orbit-line.l1 { width: 91%; height: 37%; }
+.wv-orbit-line.l2 { width: 63%; height: 67%; border-color: rgba(172,232,208,.18); transform: translate(-50%,-50%) rotate(29deg); }
+.wv-orbit-line.l3 { width: 108%; height: 20%; border-color: rgba(255,255,255,.09); transform: translate(-50%,-50%) rotate(5deg); }
+.wv-orbit-moon { position: absolute; display: block; width: 9px; height: 9px; border-radius: 50%; background: var(--orbit-mint); box-shadow: 0 0 19px rgba(172,232,208,.34); animation: orbitMoonFloat 5s ease-in-out infinite; }
+.wv-orbit-moon.m1 { top: 23%; right: 11%; }
+.wv-orbit-moon.m2 { left: 9%; bottom: 30%; width: 7px; height: 7px; background: var(--orbit-lilac); animation-delay: -1.8s; }
+.wv-orbit-moon.m3 { right: 23%; bottom: 17%; width: 5px; height: 5px; opacity: .65; animation-delay: -3.2s; }
+.wv-orbit-coordinate { position: absolute; color: var(--text-3); font-size: 6px; letter-spacing: .9px; white-space: nowrap; }
+.wv-orbit-coordinate.c1 { top: 18%; left: 8%; }
+.wv-orbit-coordinate.c2 { top: 45%; right: 2%; color: rgba(172,232,208,.58); }
+.wv-orbit-coordinate.c3 { left: 12%; bottom: 13%; }
+body.theme-orbit:not(.wave-focus) .wv-portal .wv-play { position: absolute; top: 45%; left: 50%; display: grid; place-items: center; width: 92px; height: 92px; margin: 0; border: 1px solid rgba(172,232,208,.5); border-radius: 50%; color: var(--orbit-mint); background: #111c22; box-shadow: 0 0 0 13px rgba(172,232,208,.03),0 0 55px rgba(172,232,208,.1); pointer-events: auto; transform: translate(-50%,-50%); transition: transform .28s var(--nova-ease),background .2s ease; }
+body.theme-orbit:not(.wave-focus) .wv-portal .wv-play::before { display: block; content: ''; position: absolute; inset: -15px; border: 1px solid rgba(172,232,208,.17); border-top-color: rgba(172,232,208,.72); border-radius: 50%; animation: orbitSpin 24s linear infinite; }
+body.theme-orbit:not(.wave-focus) .wv-portal .wv-play::after { display: none; }
+body.theme-orbit:not(.wave-focus) .wv-portal .wv-play > .i { width: 32px; height: 32px; color: var(--orbit-mint); filter: none; }
+body.theme-orbit:not(.wave-focus) .wv-portal .wv-play:hover { color: #14231d; background: var(--orbit-mint); transform: translate(-50%,-50%) scale(1.045); }
+body.theme-orbit:not(.wave-focus) .wv-portal .wv-play:hover > .i { color: #14231d; }
+body.theme-orbit:not(.wave-focus) .wv-instrument-action { position: absolute; left: 0; right: 0; bottom: 7%; margin: 0; text-align: center; pointer-events: none; }
+body.theme-orbit:not(.wave-focus) .wv-instrument-action > span { color: var(--text-2); font-size: 7px; letter-spacing: 1.2px; }
+body.theme-orbit:not(.wave-focus) .wv-instrument-action > small { margin-top: 6px; color: var(--text-3); font-size: 9px; }
+body.wave-focus .wv-orbital-map, .wv-hero:fullscreen .wv-orbital-map { display: none; }
+
+/* Карточки стилей сцены: единая палитра, реальные схемы без ссылок на обложку. */
+body.theme-orbit .vz-style-card { min-height: 108px; border-color: var(--orbit-line); border-radius: 16px; background: #151b24; }
+body.theme-orbit .vz-style-card:hover { border-color: rgba(188,178,244,.28); background: #19202a; }
+body.theme-orbit .vz-style-card.on { border-color: rgba(172,232,208,.48); background: rgba(172,232,208,.065); box-shadow: inset 0 0 0 1px rgba(172,232,208,.08); }
+body.theme-orbit .vz-style-preview { border: 1px solid rgba(255,255,255,.035); background: radial-gradient(ellipse at 50% 100%,rgba(188,178,244,.08),transparent 70%),#10161e; }
+body.theme-orbit .vz-style-waves .vz-style-preview, body.theme-orbit .vz-style-particles .vz-style-preview { color: var(--orbit-mint); background: radial-gradient(ellipse at 50% 100%,rgba(188,178,244,.08),transparent 70%),#10161e; }
+body.theme-orbit .vz-style-bars .vz-style-preview { color: var(--orbit-lilac); background: radial-gradient(ellipse at 50% 100%,rgba(172,232,208,.055),transparent 70%),#10161e; }
+body.theme-orbit .vz-style-impact .vz-style-preview { color: var(--orbit-mint); background: radial-gradient(ellipse at 50% 50%,rgba(172,232,208,.075),transparent 72%),#10161e; }
+body.theme-orbit .vz-style-off .vz-style-preview { color: var(--text-3); background: #10161e; }
+body.theme-orbit .vz-response-preset.on, body.theme-orbit .vz-bg-option.on { border-color: rgba(172,232,208,.4); color: var(--orbit-mint); background: rgba(172,232,208,.075); }
+body.theme-orbit .vz-card-check { color: #14231d; background: var(--orbit-mint); }
+
+@keyframes orbitSpin { to { transform: rotate(360deg); } }
+@keyframes orbitMoonFloat { 0%,100% { transform: translateY(-3px); opacity: .68; } 50% { transform: translateY(4px); opacity: 1; } }
+body.reduce-motion .home-orbit-moon, body.reduce-motion .wv-orbit-moon,
+body.reduce-motion .home-wave-play::before, body.reduce-motion .wv-play::before { animation: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .home-orbit-moon, .wv-orbit-moon, .home-wave-play::before, .wv-play::before { animation: none !important; }
+}
+@media (max-width: 1200px) {
+  .home-orbit-coordinate { font-size: 5px; }
+  body.theme-orbit:not(.wave-focus) .wv-portal { margin-right: 16px; }
+  .wv-orbit-coordinate { font-size: 5px; }
+}
+@media (max-width: 1000px) {
+  body.theme-orbit .home-wave-play { width: 68px; height: 68px; }
+  body.theme-orbit:not(.wave-focus) .wv-portal .wv-play { width: 78px; height: 78px; }
+  .home-orbit-coordinate.c2, .wv-orbit-coordinate.c2 { display: none; }
+}

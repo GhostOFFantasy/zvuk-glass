@@ -1,7 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Окно плеера: только подписка на события приложения. Остальное — свои команды с проверкой в Rust.",
+  "description": "РћРєРЅРѕ РїР»РµРµСЂР°: С‚РѕР»СЊРєРѕ РїРѕРґРїРёСЃРєР° РЅР° СЃРѕР±С‹С‚РёСЏ РїСЂРёР»РѕР¶РµРЅРёСЏ. РћСЃС‚Р°Р»СЊРЅРѕРµ вЂ” СЃРІРѕРё РєРѕРјР°РЅРґС‹ СЃ РїСЂРѕРІРµСЂРєРѕР№ РІ Rust.",
   "windows": ["main"],
   "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
 }
+

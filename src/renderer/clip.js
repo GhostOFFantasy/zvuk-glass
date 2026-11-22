@@ -181,10 +181,11 @@
     _calKey: '',
     _calSeq: 0,
     pref(key) {
+      if (key === 'clipKeepPaused') return App.settings.viz?.[key] === true;
       return App.settings.viz?.[key] !== false;
     },
     setPreference(key, on) {
-      if (!['clipRestart', 'inkEnabled'].includes(key)) return;
+      if (!['clipRestart', 'inkEnabled', 'clipKeepPaused'].includes(key)) return;
       if (!App.settings.viz) App.settings.viz = {};
       App.settings.viz[key] = Boolean(on);
       window.zvuk.settings.set({ viz: App.settings.viz });
@@ -214,7 +215,7 @@
       this._wantTrack = String(trackId);
       this._calKey = '';
       this._calTries = 0;
-      this.sync = { state: 'idle', message: '' };
+      this.sync = { state: 'idle', phase: 'requested', message: 'Начну синхронизацию, когда клип появится на экране' };
       this._emit();
     },
     setAuto(on) {
@@ -239,8 +240,8 @@
     /** Два коротких независимых фрагмента; третий — только при неоднозначности. */
     async calibrate(force = false) {
       if (this._cal || !this.auto) return;
-      const set = (state, message = '') => {
-        this.sync = { state, message };
+      const set = (state, message = '', phase = state, detail = {}) => {
+        this.sync = { state, message, phase, ...detail };
         this._emit();
       };
       const m = [...mounts].reverse().find((x) => x.iframe && x.ready && x.box.isConnected);
@@ -269,19 +270,19 @@
         resetMounts();
       };
       try {
-        set('run', 'Готовим трек для сравнения…');
+        set('run', 'Готовим трек для сравнения…', 'prepare');
         setRate(m, 1);
         const prep = await prepareTrack(tid); // обычно уже готов благодаря requestSync()
         if (!still()) throw new Error('cancel');
         const T = (prep && prep.duration) || a.duration || 0;
 
-        set('run', 'Слушаем трек… (1 из 2)');
+        set('run', 'Слушаем трек и измеряем задержку…', 'latency');
         cmd(m, 'mute');
         const lat = await getLatency(tid, a);
         if (!still()) throw new Error('cancel');
         if (lat == null) throw new Error('Не удалось узнать трек в звуке приложения — попробуйте ещё раз');
 
-        set('run', 'Слушаем клип… (2 из 2) — несколько секунд звук идёт из клипа');
+        set('run', 'Слушаем клип — несколько секунд звук идёт из клипа', 'listen');
         AudioFX.duck(true);
         const vol = Math.max(8, Math.round(Player.volume * Player.volume * 100));
         cmd(m, 'unMute');
@@ -306,8 +307,8 @@
         let unstable = 0;
         for (let k = 0; k < plan.length && !found; k++) {
           let from = (m.seekWall || 0) + 400;
+          set('run', `Проверяем музыкальный фрагмент… (${k + 1} из ${plan.length})`, 'measure', { shot: k + 1, total: plan.length });
           if (plan[k] != null) {
-            set('run', `Проверяем музыкальный фрагмент… (${k + 1} из ${plan.length})`);
             const t = await seekClip(m, plan[k], still);
             if (!still()) throw new Error('cancel');
             if (t == null) continue;
@@ -349,6 +350,7 @@
           });
           shots.push({ v, score: r.score, second: r.second, cands });
           console.warn(`SELFTEST clipsync shot ${k}: v=${v.toFixed(2)} pts=${pts.length} ` + cands.map((c) => `${c.off.toFixed(3)}@${c.rate.toFixed(3)}:${c.score.toFixed(2)}`).join(' '));
+          set('run', 'Сопоставляю результаты замеров…', 'match', { shot: k + 1, total: plan.length });
           found = ClipSync.decide(shots);
         }
         restore();
@@ -368,12 +370,13 @@
           confidence: Math.round(found.confidence * 100) / 100, lat: Math.round(lat * 1000), at: Date.now(),
           by: found.by, shots: shots.length, elapsedMs, captureMs: CAPTURE_S * 1000, locked: false,
         };
+        set('run', 'Применяю измеренный сдвиг…', 'apply', { offset, confidence: auto.confidence, shots: shots.length, elapsedMs });
         await this._update({ auto });
         if (!still()) throw new Error('cancel');
         this._lastCalibration = { ...auto, unstable, silent };
         resetMounts();
         console.warn(`SELFTEST clipsync: offset=${offset} rate=${rate} lat=${(lat * 1000).toFixed(0)}ms by=${found.by} confidence=${found.confidence.toFixed(2)} shots=${shots.length} took=${(elapsedMs / 1000).toFixed(1)}s`);
-        set('done');
+        set('done', '', 'done', { offset, confidence: auto.confidence, shots: shots.length, elapsedMs });
         if (still()) this._restartAfterSync();
       } catch (e) {
         restore();
@@ -420,6 +423,10 @@
     },
     _emit() {
       for (const fn of listeners) fn(this);
+      document.dispatchEvent(new CustomEvent('zg:clip', { detail: this }));
+    },
+    _debugMounts() {
+      return [...mounts].map((m) => ({ ready: m.ready, state: m.state, time: m.time, on: m.box.classList.contains('clip-on'), connected: m.box.isConnected, videoId: m.videoId }));
     },
 
     /** Найти клип для текущего трека (только когда клип реально показывается). */
@@ -1036,6 +1043,7 @@
       if (!tight && !Clip._cal && tick % 4) return;
       const a = Player.audio;
       const playing = !a.paused && !(Clip.hidden && !Clip._cal);
+      const holdPaused = a.paused && Clip.pref('clipKeepPaused') && !Clip.hidden && !Clip._cal;
       const exp = a.currentTime * Clip.rate + Clip.offset;
       for (const m of mounts) {
         if (!m.iframe) continue;
@@ -1059,8 +1067,10 @@
         if (playing && m.state !== 1 && m.state !== 3) cmd(m, 'playVideo');
         if (!playing && m.state === 1) cmd(m, 'pauseVideo');
         const wasOn = m.box.classList.contains('clip-on');
-        const on = m.state === 1 && playing && performance.now() - (m.playSince || 0) > (m.chromeOff ? YT_CHROME_HIDDEN_MS : YT_CHROME_MS);
-        m.box.classList.toggle('clip-on', on);
+        const settled = performance.now() - (m.playSince || 0) > (m.chromeOff ? YT_CHROME_HIDDEN_MS : YT_CHROME_MS);
+        const on = m.state === 1 && playing && settled;
+        const keepPaused = holdPaused && settled && m.state !== 0 && m.state !== 3;
+        m.box.classList.toggle('clip-on', on || keepPaused);
         if (on && !wasOn && Player.current) queueMicrotask(() => ClipOffer.check(Player.current));
         if (tick % 50 === 0) noCaptions(m);
         if (Clip._cal || m.time == null) continue;

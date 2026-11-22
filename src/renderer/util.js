@@ -305,23 +305,39 @@
   // ---------- Слайдер ----------
   function slider(el, { onInput, onCommit }) {
     let dragging = false;
+    let lastValue = Math.max(0, Math.min(1, (parseFloat(el.querySelector('.fill')?.style.width) || 0) / 100));
     const valueAt = (e) => {
       const r = el.getBoundingClientRect();
+      if (!Number.isFinite(e.clientX) || r.width <= 0) return null;
       return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
     };
+    const input = (e) => {
+      const value = valueAt(e);
+      if (value == null) return;
+      lastValue = value;
+      onInput && onInput(value);
+    };
     el.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || e.isPrimary === false) return;
+      e.preventDefault();
+      e.stopPropagation();
       dragging = true;
       el.classList.add('drag');
-      el.setPointerCapture(e.pointerId);
-      onInput && onInput(valueAt(e));
+      try { el.setPointerCapture(e.pointerId); } catch {}
+      input(e);
     });
-    el.addEventListener('pointermove', (e) => dragging && onInput && onInput(valueAt(e)));
+    el.addEventListener('pointermove', (e) => dragging && input(e));
     const end = (e) => {
       if (!dragging) return;
+      e.preventDefault();
+      e.stopPropagation();
       dragging = false;
       el.classList.remove('drag');
-      onCommit && onCommit(valueAt(e));
+      if (e.type === 'pointerup') {
+        const value = valueAt(e);
+        onCommit && onCommit(value == null ? lastValue : value);
+      } else onCommit && onCommit(lastValue);
+      try { if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId); } catch {}
     };
     el.addEventListener('pointerup', end);
     el.addEventListener('pointercancel', end);
@@ -333,6 +349,8 @@
         if (buf != null && el.querySelector('.buf')) el.querySelector('.buf').style.width = buf * 100 + '%';
       },
       setForce(v) {
+        if (!Number.isFinite(v)) return;
+        lastValue = v;
         el.querySelector('.fill').style.width = v * 100 + '%';
         el.querySelector('.thumb').style.left = v * 100 + '%';
       },

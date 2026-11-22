@@ -31,6 +31,7 @@
     // эффект преломления (SVG-фильтр) на телефоне слишком тяжёл — там только размытое стекло
     document.body.classList.toggle('liquid-on', App.settings.liquidGlass !== false && !window.ZG_MOBILE);
     Custom.init(App.settings);
+    setPerformanceMode(App.settings.performanceMode, false);
     sendIcons();
     initUpdates();
     const st = await window.zvuk.auth.state();
@@ -155,6 +156,7 @@
     applySections();
     Player.init(App.settings);
     bindPlayer();
+    Nova.init();
     Ink.start();
     Custom.setTrackTheme(null);
     // Мини-визуализатор на фоне панели плеера
@@ -190,7 +192,10 @@
 
     loadLibrary();
     restoreQueue();
-    if (SCREENSHOT) screenshotWhenReady();
+    if (SCREENSHOT) screenshotWhenReady().catch((error) => {
+      console.error('SCREENSHOT_FLOW failure', error);
+      window.zvuk.screenshotReady(0);
+    });
     else setTimeout(() => whatsNew(false), 1400);
   }
 
@@ -471,30 +476,81 @@
   // ======================================================================
   const NAV_MAIN = ['home', 'wave', 'search', 'liked', 'albums', 'artists', 'playlists', 'history'];
 
+  let waveOrbitHandle = null;
+  let waveOrbitToken = 0;
+
+  function syncWaveTransport() {
+    const title = $('#waveTransportTitle');
+    if (!title) return;
+    const active = Player.source?.kind === 'wave';
+    title.textContent = active && Player.playing ? 'Орбита в движении' : active ? 'Орбита на паузе' : 'Запустить орбиту';
+  }
+
   function setWaveFocus(on) {
-    document.body.classList.toggle('wave-focus', on);
     const hero = $('.wv-hero');
+    const portal = hero?.querySelector('.wv-portal');
     const canvas = $('#waveCosmos');
-    const preferred = localStorage.getItem('zg.waveScene') === 'rings' ? 'rings' : 'tide';
+    const token = ++waveOrbitToken;
+    waveOrbitHandle?.stop();
+    waveOrbitHandle = null;
+    document.body.classList.toggle('wave-focus', on);
+    if (hero) delete hero.dataset.orbitFallback;
+    const focusCover = $('#wvNowSlot .wv-now img');
+    if (focusCover && Player.current) focusCover.src = cover(Player.current, on ? 600 : 160);
+
+    const play = $('#waveOrb');
+    const slot = $('#wavePlaySlot');
+    if (on && play && slot) slot.append(play);
+    else if (!on && play && portal) portal.insertBefore(play, portal.querySelector('.wv-instrument-action'));
     if (canvas?._cosmos) {
-      canvas._cosmos.set({ style: on ? 'solar' : preferred });
-      canvas.dataset.scene = on ? 'solar' : preferred;
+      canvas._cosmos.set({ style: on ? 'none' : 'waves' });
+      canvas.dataset.scene = on ? 'orbit3d' : 'waves';
     }
     const sceneLabel = $('.wv-portal-label');
-    if (sceneLabel) sceneLabel.innerHTML = `<span></span>${on ? 'Музыкальная вселенная' : preferred === 'rings' ? 'Кольца Сатурна' : 'Орбитальный прилив'}<span></span>`;
+    if (sceneLabel) sceneLabel.innerHTML = `<span></span>${on ? 'Музыкальные миры' : 'Орбитальная карта'}<span></span>`;
     const sceneSub = $('.wv-portal-sub');
-    if (sceneSub) sceneSub.textContent = on ? 'Центр — старт / пауза · кольцо — путь трека' : 'Центр — старт / пауза · кольцо — путь трека';
+    if (sceneSub) sceneSub.textContent = on ? 'Планета — музыкальный мир · тяните для вращения · двойной клик — сброс' : 'Музыка формирует пространство вокруг вас';
+    syncWaveTransport();
     const btn = $('#waveFocusBtn');
     if (btn) {
       btn.innerHTML = `${icon(on ? 'close' : 'fullscreen')}<span>${on ? 'Выйти' : 'Погрузиться'}</span>`;
-      btn.title = on ? 'Выйти из полноэкранного погружения (Esc)' : 'Звёздная система на весь экран (Esc — выход)';
+      btn.title = on ? 'Выйти из полноэкранного погружения (Esc)' : 'Интерактивная орбита на весь экран (Esc — выход)';
       btn.setAttribute('aria-pressed', String(on));
     }
-    if (on) {
+    if (on && hero) {
       $('#scroller').scrollTop = 0;
-      // Полноэкранный режим запускается непосредственно действием пользователя.
-      if (hero && document.fullscreenElement !== hero) hero.requestFullscreen?.().catch(() => {});
-    } else if (hero && document.fullscreenElement === hero) document.exitFullscreen?.().catch(() => {});
+      // Запрашиваем полный экран синхронно, пока действие пользователя ещё активно.
+      if (document.fullscreenElement !== hero) hero.requestFullscreen?.().catch(() => {});
+      import('./orbit3d.js').then(({ mountOrbit }) => {
+        if (token !== waveOrbitToken || !document.body.classList.contains('wave-focus') || !hero.isConnected) return;
+        waveOrbitHandle = mountOrbit(hero);
+        hero._orbit3d = waveOrbitHandle;
+      }).catch((error) => {
+        if (token !== waveOrbitToken || !hero.isConnected) return;
+        console.warn('Orbit 3D is unavailable; restored the lightweight scene.', error);
+        hero.dataset.orbitFallback = 'true';
+        hero.querySelectorAll('.wv-3d-stage').forEach((el) => el.remove());
+        waveOrbitHandle = null;
+        if (play && portal) portal.prepend(play);
+        if (canvas?._cosmos) {
+          canvas._cosmos.set({ style: 'solar' });
+          canvas.dataset.scene = 'solar';
+        }
+        if (sceneLabel) sceneLabel.innerHTML = '<span></span>Музыкальная вселенная<span></span>';
+        if (sceneSub) sceneSub.textContent = 'Центр — старт / пауза · кольцо — путь трека';
+        toast('3D-ускорение недоступно — включена лёгкая орбита', { ms: 3500 });
+      });
+    } else {
+      if (hero && document.fullscreenElement === hero) document.exitFullscreen?.().catch(() => {});
+      const seek = $('#waveRingSeek');
+      if (seek) {
+        const duration = Player.audio.duration;
+        const enabled = Number.isFinite(duration) && duration > 0 && Boolean(Player.current);
+        seek.classList.toggle('available', enabled);
+        seek.tabIndex = enabled ? 0 : -1;
+        seek.setAttribute('aria-disabled', String(!enabled));
+      }
+    }
   }
   document.addEventListener('fullscreenchange', () => {
     if (!document.fullscreenElement && document.body.classList.contains('wave-focus')) setWaveFocus(false);
@@ -537,10 +593,16 @@
     const sc = $('#scroller');
     const prevScroll = sc.scrollTop;
     const old = $('#view');
+    // Сначала останавливаем WebGL и возвращаем кнопку в исходный слот, затем заменяем страницу.
+    if (document.body.classList.contains('wave-focus')) setWaveFocus(false);
     // сцена визуализатора держит клип YouTube и анимацию — освобождаем её вместе со старым экраном
     if (Views._vizScene) {
       Views._vizScene.destroy();
       Views._vizScene = null;
+    }
+    if (Views._pulse) {
+      Views._pulse.destroy();
+      Views._pulse = null;
     }
     const view = document.createElement('div');
     view.className = 'view' + (keepScroll ? '' : ' enter');
@@ -566,6 +628,8 @@
     if (seq !== renderSeq) return;
     if (restoreScroll) requestAnimationFrame(() => (sc.scrollTop = restoreScroll));
     else if (keepScroll) sc.scrollTop = prevScroll;
+    UI.virtualize?.(view);
+    UI.warmImages?.(view);
     markPlayingRows();
   }
 
@@ -581,15 +645,24 @@
     const v = App.route?.view;
     const active = $(`.sidebar .nav-item[data-view="${v}"]`);
     const ind = $('#navIndicator');
-    const hiddenSec = active && active.closest('.sec-body') && $('#sidebar').classList.contains('sec-lib-off') && !document.body.classList.contains('compact-sidebar');
+    const section = active?.closest('[data-sec-body]')?.dataset.secBody;
+    const hiddenSec = section && $('#sidebar').classList.contains(`sec-${section}-off`) && !document.body.classList.contains('compact-sidebar');
     if (active && !hiddenSec) {
-      const sb = $('#sidebar').getBoundingClientRect();
+      const sb = $('#sidebarScroll').getBoundingClientRect();
       const r = active.getBoundingClientRect();
-      ind.style.transform = `translateY(${r.top - sb.top}px)`;
+      ind.style.transform = `translateY(${r.top - sb.top + $('#sidebarScroll').scrollTop}px)`;
       ind.style.opacity = '1';
     } else ind.style.opacity = '0';
   }
   window.addEventListener('resize', debounce(updateNav, 100));
+  let navScrollRaf = 0;
+  $('#sidebarScroll')?.addEventListener('scroll', () => {
+    if (navScrollRaf) return;
+    navScrollRaf = requestAnimationFrame(() => {
+      navScrollRaf = 0;
+      moveIndicator();
+    });
+  }, { passive: true });
 
   // ---------- Сворачиваемые разделы боковой панели ----------
   const SEC_KEY = 'zg.sections';
@@ -602,9 +675,12 @@
   };
   function applySections() {
     const s = secState();
-    $('#sidebar').classList.toggle('sec-lib-off', Boolean(s.lib));
-    $('#sidebar').classList.toggle('sec-pl-off', Boolean(s.pl));
-    $$('.sec-toggle').forEach((b) => (b.title = s[b.dataset.sec] ? 'Развернуть' : 'Свернуть'));
+    for (const sec of ['main', 'lib', 'pl']) $('#sidebar').classList.toggle(`sec-${sec}-off`, Boolean(s[sec]));
+    $$('.sec-toggle').forEach((b) => {
+      const collapsed = Boolean(s[b.dataset.sec]);
+      b.title = collapsed ? 'Развернуть' : 'Свернуть';
+      b.setAttribute('aria-expanded', String(!collapsed));
+    });
   }
   function toggleSection(sec) {
     const s = secState();
@@ -736,15 +812,83 @@
     }
   }
 
+  // Дрейф фоновых пятен выполняется композитором, без пересчёта CSS-стилей каждую кадровую метку.
+  // WAAPI сохраняет те же ключевые кадры и длительности; при отказе API остаётся исходный CSS-вариант.
+  let ambientAnimations = [];
+  let ambientReady = false;
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  function syncAmbientMotion() {
+    const classes = document.body.classList;
+    const stopped = reducedMotion.matches || document.hidden || ['reduce-motion', 'perf-eco', 'design-classic', 'no-blobs', 'win-hidden'].some((name) => classes.contains(name));
+    for (const animation of ambientAnimations) {
+      if (stopped && animation.playState === 'running') animation.pause();
+      else if (!stopped && animation.playState === 'paused') animation.play();
+    }
+  }
+  function initAmbientMotion() {
+    if (ambientReady) return syncAmbientMotion();
+    const blobs = [...document.querySelectorAll('.blob')];
+    if (!blobs.length || typeof blobs[0].animate !== 'function') return;
+    const specs = [];
+    for (const element of blobs) {
+      const cssAnimation = element.getAnimations().find((animation) => /^drift[123]$/.test(animation.animationName || ''));
+      if (!cssAnimation?.effect) return;
+      specs.push({ element, frames: cssAnimation.effect.getKeyframes(), timing: cssAnimation.effect.getTiming(), currentTime: cssAnimation.currentTime || 0 });
+    }
+    ambientReady = true;
+    document.body.classList.add('waapi-blobs');
+    ambientAnimations = specs.map(({ element, frames, timing, currentTime }) => {
+      const animation = element.animate(frames, timing);
+      animation.currentTime = currentTime;
+      return animation;
+    });
+    const observer = new MutationObserver(syncAmbientMotion);
+    observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    document.addEventListener('visibilitychange', syncAmbientMotion);
+    reducedMotion.addEventListener('change', syncAmbientMotion);
+    syncAmbientMotion();
+  }
+
+  function setPerformanceMode(mode, persist = true) {
+    if (mode === 'high') mode = 'full';
+    if (mode === 'balanced') mode = 'auto';
+    if (!['auto', 'full', 'eco'].includes(mode)) mode = 'auto';
+    App.settings.performanceMode = mode;
+    document.body.classList.remove('perf-balanced');
+    document.body.classList.toggle('perf-full', mode === 'full');
+    document.body.classList.toggle('perf-eco', mode === 'eco');
+    if (persist) window.zvuk.settings.set({ performanceMode: mode });
+    initAmbientMotion();
+    window.dispatchEvent(new CustomEvent('zg:performance', { detail: { mode } }));
+  }
+  App.setPerformanceMode = setPerformanceMode;
+
   function startMyWave() {
     const opts = UI.waveOptions();
+    const world = OrbitWorlds.get(App.settings.wave?.world);
     Player.startEndless({
       kind: 'wave',
-      title: 'Музыкальная орбита',
+      title: `Орбита · ${world.name}`,
       params: { opts },
       fetchMore: () => window.zvuk.call('personalWave', 10, opts),
     });
   }
+  function startWaveWorld(id) {
+    const world = OrbitWorlds.get(id);
+    if (App.settings.wave?.world === world.id && Player.source?.kind === 'wave' && Player.current) {
+      if (!Player.playing) Player.toggle();
+      return;
+    }
+    const w = OrbitWorlds.settings(world.id);
+    App.settings.wave = w;
+    window.zvuk.settings.set({ wave: w });
+    const summary = $('#waveSummary');
+    if (summary) summary.textContent = UI.waveSummary(w);
+    Views._waveTune?.(w);
+    startMyWave();
+    toast(`${world.name} · ${world.short}`, { iconName: world.icon, ms: 2800 });
+  }
+  document.addEventListener('orbit-world', (e) => startWaveWorld(e.detail?.id));
   async function startEditorialWave(id) {
     let title = 'Волна';
     try {
@@ -791,7 +935,18 @@
   // Привязка плеера к интерфейсу
   // ======================================================================
   let seekUI, npSeekUI, volUI, npVolUI;
+  function syncTrackPlayIcons(force = false) {
+    const playing = force === true || Player.playing;
+    document.querySelectorAll('.tr[data-track]').forEach((row) => {
+      const current = Player.current && String(Player.current.id) === String(row.dataset.track);
+      row.classList.toggle('playing', current);
+      const icon = row.querySelector('[data-play-icon]');
+      if (icon) icon.innerHTML = current && playing ? ICONS.pause : ICONS.play;
+    });
+  }
   function bindPlayer() {
+    Player.on('track', syncTrackPlayIcons);
+    Player.on('state', syncTrackPlayIcons);
     // Телефон: мини-плеер внизу — по нажатию на него (кроме кнопок) открывается полноэкранный плеер
     $('#player').addEventListener('click', (e) => {
       if (window.ZG_MOBILE && !e.target.closest('button, .slider, a, .lnk')) openNowPlaying();
@@ -831,6 +986,33 @@
     };
     volUI = volSlider($('#vol'));
     npVolUI = volSlider($('#npVol'));
+    Views._bindWaveVolume = () => {
+      const el = $('#waveVol');
+      if (!el) return;
+      if (!el._volUI) el._volUI = volSlider(el);
+      el._volUI.setForce(Player.muted ? 0 : Player.volume);
+    };
+    Views._bindWaveVolume();
+    Views._bindWaveSeek = () => {
+      const el = $('#waveSeek');
+      if (!el) return;
+      if (!el._seekUI) {
+        const ui = slider(el, {
+          onInput: (v) => {
+            const d = Player.audio.duration || Player.current?.duration || 0;
+            $('#waveSeekCur').textContent = fmtTime(v * d);
+            ui.setForce(v);
+          },
+          onCommit: (v) => Player.seek(v * (Player.audio.duration || Player.current?.duration || 0)),
+        });
+        el._seekUI = ui;
+      }
+      const d = Player.audio.duration || Player.current?.duration || 0;
+      el._seekUI.setForce(d ? (Player.audio.currentTime || 0) / d : 0);
+      $('#waveSeekCur').textContent = fmtTime(Player.audio.currentTime || 0);
+      $('#waveSeekDur').textContent = fmtTime(d);
+    };
+    Views._bindWaveSeek();
 
     Player.on('track', (t) => {
       $('#plTitle').innerHTML = t.release ? `<span class="lnk" data-act="nav" data-view="release" data-id="${esc(t.release.id)}">${esc(t.title)}</span>` : esc(t.title);
@@ -847,7 +1029,7 @@
       refreshLikeButtons();
       markPlayingRows();
       App.lyrics = { trackId: null, data: null, loading: false };
-      if (App.panel === 'lyrics' || lyricsInNp()) loadLyrics();
+      if (App.panel === 'lyrics' || App.panel === 'nova' || lyricsInNp() || Nova.wantsLyrics()) loadLyrics();
       if (App.route?.view === 'wave') Views._waveNow();
       if (npOpen()) NP.render();
       Views._vizTrack && Views._vizTrack(t);
@@ -869,12 +1051,19 @@
         orb.classList.toggle('playing', wavePlaying);
         orb.querySelector(':scope > .i').innerHTML = ICONS[wavePlaying ? 'pause' : 'play'];
       }
+      syncWaveTransport();
     });
     Player.on('time', ({ cur, dur, buf }) => {
       const v = dur ? cur / dur : 0;
       seekUI.set(v, buf);
       $('#plCur').textContent = fmtTime(cur);
       $('#plDur').textContent = fmtTime(dur);
+      const waveSeek = $('#waveSeek');
+      if (waveSeek?._seekUI) {
+        waveSeek._seekUI.set(v, buf);
+        $('#waveSeekCur').textContent = fmtTime(cur);
+        $('#waveSeekDur').textContent = fmtTime(dur);
+      }
       if (npOpen()) {
         npSeekUI.set(v, buf);
         $('#npCur').textContent = fmtTime(cur);
@@ -896,6 +1085,12 @@
       $('#plVolBtn .i').innerHTML = ic;
       $('#npVolBtn .i').innerHTML = ic;
       $('#npVolVal').textContent = Math.round(v * 100) + '%';
+      Views._bindWaveVolume?.();
+      $('#waveVol')?._volUI?.setForce(v);
+      const waveVolIcon = $('#waveVolBtn .i');
+      if (waveVolIcon) waveVolIcon.innerHTML = ic;
+      const waveVolVal = $('#waveVolVal');
+      if (waveVolVal) waveVolVal.textContent = Math.round(v * 100) + '%';
     });
     Player.on('empty', () => startMyWave());
     Player.on('loading', (on) => document.body.classList.toggle('loading', on));
@@ -913,6 +1108,7 @@
     window.zvuk.onHidden((hidden) => {
       document.body.classList.toggle('win-hidden', hidden);
       Viz.setHidden(hidden);
+      waveOrbitHandle?.setHidden(hidden);
       Clip.hidden = hidden;
       const vid = $('#bgVideo');
       if (vid && vid.getAttribute('src')) hidden ? vid.pause() : vid.play().catch(() => {});
@@ -988,17 +1184,24 @@
     $$('#spSeg button').forEach((b) => b.classList.toggle('on', b.dataset.panel === name));
     $('#plQueueBtn').classList.toggle('on', name === 'queue');
     $('#plLyricsBtn').classList.toggle('on', name === 'lyrics');
+    $('#plNovaBtn').classList.toggle('on', name === 'nova');
     if (name === 'queue') renderQueue();
-    else {
+    else if (name === 'nova') {
+      Nova.mount($('#spBody'));
+      loadLyrics();
+    } else {
       renderLyricsInto($('#spBody'));
       loadLyrics();
     }
+    Nova.render();
   }
   function closePanel() {
     App.panel = null;
     $('#sidePanel').classList.remove('open');
     $('#plQueueBtn').classList.remove('on');
     $('#plLyricsBtn').classList.remove('on');
+    $('#plNovaBtn').classList.remove('on');
+    Nova.render();
   }
   // для мобильного модуля (жесты и системная кнопка «Назад»): mobile.js
   Object.assign(App, {
@@ -1008,6 +1211,7 @@
     closeNowPlaying: () => closeNowPlaying(),
     goBack: () => goBack(),
     hideSuggest: () => hideSuggest(),
+    loadLyrics: () => loadLyrics(),
     /** Меню трека у строки списка — для долгого нажатия пальцем. */
     rowMenu(row, x, y) {
       const l = UI.Lists.get(row.dataset.list);
@@ -1101,6 +1305,12 @@
   function renderLyricsAll() {
     if (App.panel === 'lyrics') renderLyricsInto($('#spBody'));
     if (lyricsInNp()) renderLyricsInto($('#npLyrics'));
+    if (App.panel === 'nova') syncLyrics(Player.audio.currentTime);
+    const L = App.lyrics || {};
+    document.dispatchEvent(new CustomEvent('zg:lyrics-state', { detail: {
+      trackId: L.trackId, loading: Boolean(L.loading), searching: Boolean(L.searching), source: L.source,
+      synced: Boolean(L.data && L.data !== 'none' && L.data.synced), none: L.data === 'none',
+    } }));
   }
   function renderLyricsInto(el) {
     const L = App.lyrics;
@@ -1119,12 +1329,13 @@
     syncLyrics(Player.audio.currentTime);
   }
   let lastLine = -2;
+  let lastNovaLineKey = '';
   let userScrollAt = 0;
   ['#spBody', '#npLyrics'].forEach((s) => $(s).addEventListener('wheel', () => (userScrollAt = Date.now()), { passive: true }));
   function syncLyrics(cur) {
     const L = App.lyrics.data;
     if (!L || L === 'none' || !L.synced) return;
-    if (App.panel !== 'lyrics' && !lyricsInNp()) return;
+    if (App.panel !== 'lyrics' && App.panel !== 'nova' && !lyricsInNp() && !Nova.wantsLyrics()) return;
     cur -= App.lyrics.offset || 0; // сдвиг: строки показываются позже (+) или раньше (−)
     let idx = -1;
     let lo = 0, hi = L.lines.length - 1;
@@ -1151,6 +1362,14 @@
         box.scrollTo({ top: target, behavior: 'smooth' });
       }
     }
+    const novaLineKey = `${App.lyrics.trackId}|${idx}`;
+    if (novaLineKey === lastNovaLineKey) return;
+    lastNovaLineKey = novaLineKey;
+    document.dispatchEvent(new CustomEvent('zg:lyrics-line', { detail: {
+      trackId: App.lyrics.trackId, index: idx, line: idx >= 0 ? L.lines[idx] : null,
+      previous: idx > 0 ? L.lines[idx - 1] : null, next: idx >= 0 ? L.lines[idx + 1] || null : L.lines[0] || null,
+      time: cur,
+    } }));
   }
 
   // ======================================================================
@@ -1255,9 +1474,9 @@
       case 'play-row': {
         e.stopPropagation();
         const row = el.closest('[data-list]') || el;
-        if (row.dataset.queueIdx != null) return Player.playAt(+row.dataset.queueIdx);
+        if (row.dataset.queueIdx != null) { Player.playAt(+row.dataset.queueIdx); syncTrackPlayIcons(true); return; }
         const l = UI.Lists.get(row.dataset.list);
-        if (l) Player.playList(l.tracks, +row.dataset.idx, l.source || { kind: 'list', title: '' });
+        if (l) { Player.playList(l.tracks, +row.dataset.idx, l.source || { kind: 'list', title: '' }); syncTrackPlayIcons(true); }
         break;
       }
       case 'play-list-all':
@@ -1384,23 +1603,6 @@
         if (Player.source?.kind === 'wave' && Player.current) Player.toggle();
         else startMyWave();
         break;
-      case 'wave-scene': {
-        const next = localStorage.getItem('zg.waveScene') === 'rings' ? 'tide' : 'rings';
-        localStorage.setItem('zg.waveScene', next);
-        const canvas = $('#waveCosmos');
-        if (canvas?._cosmos) {
-          canvas._cosmos.set({ style: next });
-          canvas.dataset.scene = next;
-        }
-        const sceneBtn = $('#waveSceneBtn');
-        if (sceneBtn) {
-          sceneBtn.innerHTML = `${icon('album')}<span>${next === 'rings' ? 'Кольца Сатурна' : 'Орбитальный прилив'}</span>`;
-          sceneBtn.setAttribute('aria-pressed', String(next === 'rings'));
-        }
-        const sceneLabel = $('.wv-portal-label');
-        if (sceneLabel) sceneLabel.innerHTML = `<span></span>${next === 'rings' ? 'Кольца Сатурна' : 'Орбитальный прилив'}<span></span>`;
-        break;
-      }
       case 'wave-focus':
         setWaveFocus(!document.body.classList.contains('wave-focus'));
         break;
@@ -1471,6 +1673,21 @@
       case 'quality':
         setQuality(d.q);
         break;
+      case 'performance-mode': {
+        setPerformanceMode(d.mode);
+        $$('[data-act="performance-mode"]').forEach((button) => {
+          const on = button.dataset.mode === App.settings.performanceMode;
+          button.classList.toggle('on', on);
+          button.setAttribute('aria-pressed', String(on));
+        });
+        const note = $('#perfModeNote');
+        if (note) note.textContent = {
+          auto: 'Полное качество, разрешение и частота дисплея. Приложение само прекращает невидимую и ненужную работу без ограничения FPS.',
+          full: 'Все видимые эффекты и анимации активны. Полное разрешение, материалы и максимальная частота дисплея.',
+          eco: 'Только декоративный фон становится статичным. Разрешение, материалы и частота кадров не снижаются.',
+        }[App.settings.performanceMode];
+        break;
+      }
       case 'toggle-liquid':
         App.settings.liquidGlass = !App.settings.liquidGlass;
         document.body.classList.toggle('liquid-on', App.settings.liquidGlass);
@@ -1884,11 +2101,17 @@
   // Служебный режим снимка экрана
   // ======================================================================
   async function screenshotWhenReady() {
+    console.warn('SCREENSHOT_FLOW begin');
     await new Promise((r) => setTimeout(r, 2500));
     const imgs = $$('img').filter((i) => i.src && !i.complete);
     await Promise.race([Promise.all(imgs.map((i) => new Promise((r) => (i.onload = i.onerror = r)))), new Promise((r) => setTimeout(r, 5000))]);
     let extra = params.get('extra') || '';
+    console.warn('SCREENSHOT_FLOW assets ' + extra);
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    if (['homenarrow', 'pulsenarrow', 'likednarrow'].includes(extra)) {
+      await window.zvuk.debug.resize(1050, 740);
+      await wait(700);
+    }
     const firstList = () => [...UI.Lists.values()].find((x) => x.tracks.length > 4) || [...UI.Lists.values()].find((x) => x.tracks.length);
     // Тихое воспроизведение: звук идёт в анализатор, но не в динамики
     const silentPlay = async (idx = 0) => {
@@ -1902,6 +2125,500 @@
       Player._applyVolume = () => AudioFX.setVolume(0);
       await wait(4500);
     };
+    if (extra === 'uiactions') {
+      await silentPlay(0);
+      const result = { playIcon: false, presetWheel: false, volumeCancel: false, details: null };
+      const row = [...document.querySelectorAll('.tr[data-track]')].find((item) => String(item.dataset.track) === String(Player.current?.id)) || document.querySelector('.tr[data-track]');
+      row.querySelector('[data-act="play-row"]').click();
+      const rowIcon = row.querySelector('[data-play-icon]');
+      result.playIcon = rowIcon.querySelectorAll('rect').length === 2 && !rowIcon.querySelector('path');
+      const playDetails = { currentId: Player.current?.id, rowId: row.dataset.track, playing: Player.playing, icon: rowIcon.innerHTML };
+      NP.open();
+      await wait(350);
+      NP.toggleEq();
+      const presets = $('#npEq .ne-presets');
+      presets.dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true }));
+      result.presetWheel = presets.scrollTop > 0 || presets.scrollLeft > 0;
+      NP.closeEq();
+      Player.setVolume(.6);
+      const slider = $('#npVol');
+      const rect = slider.getBoundingClientRect();
+      const x = (fraction) => rect.left + rect.width * fraction;
+      const y = rect.top + rect.height / 2;
+      slider.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 91, button: 0, isPrimary: true, clientX: x(.6), clientY: y, bubbles: true }));
+      slider.dispatchEvent(new PointerEvent('pointermove', { pointerId: 91, clientX: x(.4), clientY: y, bubbles: true }));
+      slider.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 91, clientX: 0, clientY: y, bubbles: true }));
+      result.volumeCancel = Player.volume > .37 && Player.volume < .43;
+      result.details = { ...playDetails, sliderWidth: Math.round(rect.width), volume: Player.volume };
+      result.pass = result.playIcon && result.presetWheel && result.volumeCancel;
+      console.warn('SELFTEST uiactions: ' + JSON.stringify(result));
+      return window.zvuk.screenshotReady(300);
+    }
+    if (extra === 'novaemotions') {
+      await silentPlay(0);
+      if (App.panel !== 'nova') openPanel('nova');
+      if (!Nova._stateForTest().watching) $('[data-nova-watch]')?.click();
+      Nova.setStyle('lunar');
+      if (!Player.playing) { Player.play(); await wait(250); }
+      const cases = [['tenderness', 'love'], ['joy', 'happy'], ['excitement', 'dance'], ['shy', 'kiss'], ['thoughtful', 'stars'], ['support', 'lonely'], ['longing', 'goodbye'], ['surprise', 'wow']];
+      const result = {};
+      const realNow = Date.now;
+      try {
+        for (let index = 0; index < cases.length; index++) {
+          const [emotion, word] = cases[index];
+          Date.now = () => realNow() + (index + 1) * 20000;
+          document.dispatchEvent(new CustomEvent('zg:lyrics-line', { detail: { trackId: Player.current.id, index, line: { t: 8 + index * 3, text: word }, next: { t: 30, text: 'Next line' } } }));
+          Date.now = realNow;
+          const motion = $('.nv-portrait .nova-motion');
+          const image = motion?.querySelector(':scope > img');
+          for (let n = 0; n < 40 && !(image?.complete && image.naturalWidth > 0); n++) await wait(50);
+          await wait(80);
+          const rigActive = motion?._novaRig?.getStats().active;
+          result[emotion] = Nova._stateForTest().pose === emotion && motion?.dataset.staticEmotion === '1' && motion.dataset.pose === emotion && image?.getAttribute('src') === `assets/nova/emotions/${emotion}.webp` && image.complete && image.naturalWidth > 0 && motion._novaVideo.paused && !rigActive;
+        }
+        const motion = $('.nv-portrait .nova-motion');
+        for (const style of ['lunar', 'signal', 'neon', 'impulse', 'resonance', 'eclipse']) {
+          Nova.setStyle(style);
+          let styleOk = true;
+          for (const [emotion] of cases) {
+            motion.dataset.localPose = emotion;
+            Nova.renderPose();
+            const image = motion.querySelector(':scope > img');
+            const expected = style === 'lunar' ? `assets/nova/emotions/${emotion}.webp` : `assets/nova/styles/${style}/${emotion}.webp`;
+            for (let n = 0; n < 40 && !(image?.complete && image.naturalWidth > 0 && image.getAttribute('src') === expected); n++) await wait(25);
+            styleOk = styleOk && image?.getAttribute('src') === expected && image.complete && image.naturalWidth > 0;
+          }
+          const concept = await fetch(`assets/nova/styles/${style}/concept.webp`);
+          result[`style:${style}`] = styleOk && concept.ok;
+        }
+        delete motion.dataset.localPose;
+        Nova.setStyle('lunar');
+        Nova.renderPose();
+      } finally { Date.now = realNow; }
+      result.pass = Object.values(result).every(Boolean);
+      console.warn('SELFTEST novaemotions: ' + JSON.stringify(result));
+      return window.zvuk.screenshotReady(300);
+    }
+    // NOVA: Синхронизация — спектральный чарт и настоящие аудиочасы плеера.
+    if (extra.startsWith('pulse')) {
+      const readyPulse = async () => {
+        for (let i = 0; i < 100 && !window.__pulseTest; i++) await wait(100);
+        return Boolean(window.__pulseTest);
+      };
+      if (!await readyPulse()) {
+        console.warn('SELFTEST pulse: {"pass":false,"reason":"renderer-not-ready"}');
+        return window.zvuk.screenshotReady(0);
+      }
+      if (extra === 'pulse' || extra === 'pulsenarrow') return window.zvuk.screenshotReady(500);
+      await silentPlay(0);
+      navigate('pulse');
+      if (!await readyPulse()) return window.zvuk.screenshotReady(0);
+      const game = window.__pulseTest;
+      const untilState = async (wanted, timeout = 120000) => {
+        const started = performance.now();
+        while (performance.now() - started < timeout && game.state !== wanted) await wait(100);
+        return game.state === wanted;
+      };
+      const untilPlay = () => untilState('play');
+      if (extra === 'pulsestart') {
+        Player.pause();
+        Player.audio.removeAttribute('src');
+        Player.audio.load();
+        await wait(250);
+        const button = $('[data-pg-action="start"]');
+        const pulseRoot = button?.closest('.pulse-shell');
+        const trackId = String(Player.current?.id || '');
+        const stateBefore = game.state;
+        const beforePaused = Player.audio.paused;
+        const events = [];
+        const errors = [];
+        const onError = (event) => errors.push(event.error?.stack || event.message || String(event.reason));
+        window.addEventListener('error', onError);
+        window.addEventListener('unhandledrejection', onError);
+        button?.addEventListener('click', (event) => events.push(`button:${event.target.tagName}:${event.cancelBubble}`));
+        pulseRoot?.addEventListener('click', () => events.push('root'));
+        if (button) {
+          const rect = button.getBoundingClientRect();
+          const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
+          const hit = document.elementFromPoint(x, y);
+          events.push(hit === button || button.contains(hit) ? 'hit-button' : `hit-${hit?.tagName}.${hit?.className}`);
+          await window.zvuk.debug.mouse(x, y);
+          await wait(100);
+          await window.zvuk.debug.mouse(x, y, 'mousePressed');
+          await wait(60);
+          await window.zvuk.debug.mouse(x, y, 'mouseReleased');
+        }
+        const entered = ['prepare', 'countdown'].includes(game.state);
+        await wait(500);
+        const after500 = game.state;
+        const playing = await untilState('play', 20000);
+        const metrics = game.metrics();
+        const report = { button: Boolean(button), disabled: button?.disabled, stateBefore, beforePaused, afterPaused: Player.audio.paused, events, errors, entered, after500, domState: pulseRoot?.dataset.state, playing, state: game.state, notes: metrics.chartNotes, sameTrack: trackId === String(Player.current?.id || ''), sourceRestored: Boolean(Player.audio.src), lifecycle: metrics.lifecycle };
+        window.removeEventListener('error', onError);
+        window.removeEventListener('unhandledrejection', onError);
+        report.pass = report.button && entered && playing && metrics.chartNotes > 0;
+        console.warn('SELFTEST pulsestart: ' + JSON.stringify(report));
+        return window.zvuk.screenshotReady(300);
+      }
+      const key = (code, down = true) => document.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', {
+        key: code.startsWith('Key') ? code.slice(3).toLowerCase() : code,
+        code, bubbles: true, cancelable: true,
+      }));
+      if (extra === 'pulsetest') {
+        const result = {
+          title: false, sfxDefault: false, prepare: false, countdown: false, play: false, chart: false,
+          keys: true, exact: false, early: false, late: false, expanded: false, miss: false, hold: false, earlyRelease: false,
+          pause: false, resumeHold: false, regrab: false, sfx: false, calibration: false, seek: false, track: false,
+          victory: false, unlock: false, stylePersistence: false, restart: false, trackDuringAnalysis: false,
+          gameOver: false, titleReturn: false,
+        };
+        game.setDifficulty('normal');
+        result.title = game.state === 'title';
+        result.sfxDefault = game.metrics().sfxEnabled;
+        const starting = game.start();
+        result.prepare = game.state === 'prepare';
+        await starting;
+        result.countdown = game.state === 'countdown' && !Player.playing && game.metrics().trackTime < .15;
+        result.play = await untilPlay();
+        let metrics = game.metrics();
+        result.chart = metrics.chartNotes > 0 && metrics.onsets > 0 && metrics.method === 'spectral-flux' && metrics.bpm > 0;
+        for (let lane = 0; lane < 4; lane++) {
+          Player.seek(0); await wait(45);
+          game.inject(lane, game.metrics().trackTime);
+          const hits = game.metrics().hits;
+          key(['KeyD', 'KeyF', 'KeyJ', 'KeyK'][lane]);
+          key(['KeyD', 'KeyF', 'KeyJ', 'KeyK'][lane], false);
+          await wait(20);
+          result.keys = result.keys && game.metrics().hits === hits + 1 && Math.abs(game.metrics().lastOffset) <= .12;
+        }
+        game.resetFixture(); await wait(35);
+        let noteTime = game.metrics().trackTime + .4;
+        game.inject(0, noteTime); game.hit(0, noteTime);
+        result.exact = game.metrics().lastJudge === 'perfect' && Math.abs(game.metrics().lastOffset) < .001;
+        game.resetFixture(); await wait(35);
+        noteTime = game.metrics().trackTime + .4;
+        game.inject(0, noteTime); game.hit(0, noteTime - .07);
+        result.early = game.metrics().lastJudge === 'great' && game.metrics().lastOffset < 0;
+        game.resetFixture(); await wait(35);
+        noteTime = game.metrics().trackTime + .4;
+        game.inject(0, noteTime); game.hit(0, noteTime + .11);
+        result.late = game.metrics().lastJudge === 'good' && game.metrics().lastOffset > 0;
+        game.resetFixture(); await wait(35);
+        noteTime = game.metrics().trackTime + .4;
+        game.inject(0, noteTime); game.hit(0, noteTime + .14);
+        result.expanded = game.metrics().lastJudge === 'good' && game.metrics().lastOffset > .125;
+        game.resetFixture(); await wait(35);
+        game.inject(2, game.metrics().trackTime + .05);
+        for (let attempt = 0; attempt < 20 && !game.metrics().misses; attempt++) await wait(50);
+        result.miss = game.metrics().misses === 1 && game.metrics().lastJudge === 'miss';
+        game.resetFixture(); await wait(35);
+        noteTime = game.metrics().trackTime;
+        game.inject(1, noteTime, .38); game.hit(1, noteTime); await wait(560);
+        result.hold = game.metrics().holdTicks > 0 && game.metrics().activeHolds === 0 && game.metrics().misses === 0 && game.metrics().lastJudge === 'hold';
+        game.resetFixture(); await wait(35);
+        noteTime = game.metrics().trackTime;
+        game.inject(1, noteTime, 1.5); game.hit(1, noteTime); await wait(180); key('KeyF', false);
+        result.earlyRelease = game.metrics().lastJudge === 'broken' && game.metrics().misses === 1;
+        game.resetFixture(); await wait(35);
+        noteTime = game.metrics().trackTime;
+        game.inject(1, noteTime, 1.2); game.hit(1, noteTime); await wait(120);
+        game.pause();
+        const pausedAt = game.metrics().trackTime;
+        const pausedTicks = game.metrics().holdTicks;
+        await wait(180);
+        result.pause = game.state === 'pause' && !Player.playing && Math.abs(game.metrics().trackTime - pausedAt) < .04;
+        game.resume(); await wait(180);
+        result.resumeHold = game.state === 'play' && game.metrics().holding === 1 && game.metrics().activeHolds === 0 && game.metrics().holdTicks === pausedTicks;
+        key('KeyF'); await wait(150);
+        result.regrab = game.metrics().activeHolds === 1 && game.metrics().holdTicks > pausedTicks;
+        key('KeyF', false);
+        const sfx = $('[data-pg-action="sfx"]');
+        const sfxBefore = game.metrics().sfxEnabled;
+        sfx.click();
+        const sfxChanged = game.metrics().sfxEnabled !== sfxBefore && localStorage.getItem('zg.pulse.sfx') === (sfxBefore ? '0' : '1');
+        sfx.click();
+        result.sfx = sfxChanged && game.metrics().sfxEnabled === sfxBefore;
+        const calibration = $('[data-pg="calibration"]');
+        calibration.value = '25';
+        calibration.dispatchEvent(new Event('input', { bubbles: true }));
+        calibration.dispatchEvent(new Event('change', { bubbles: true }));
+        result.calibration = game.metrics().calibration === 25 && localStorage.getItem('zg.pulse.offset') === '25';
+        calibration.value = '0';
+        calibration.dispatchEvent(new Event('input', { bubbles: true }));
+        calibration.dispatchEvent(new Event('change', { bubbles: true }));
+        Player.seek(1); await wait(80);
+        result.seek = Math.abs(game.metrics().trackTime - 1) < .25 && game.metrics().activeHolds === 0 && game.metrics().skipped > 0;
+        const oldTrack = String(Player.current?.id);
+        Player.next(); await wait(1400);
+        result.track = String(Player.current?.id) !== oldTrack && game.state === 'title' && game.metrics().chartNotes === 0;
+        const progressBefore = game.progress();
+        const completedTrack = String(Player.current?.id);
+        game.finish(true);
+        result.victory = game.state === 'result' && game.metrics().result === 'complete';
+        result.unlock = game.progress().clears.includes(completedTrack) && game.metrics().unlocked.includes('signal') && (progressBefore.clears.includes(completedTrack) || $('.sync-unlocks')?.textContent.includes('Сигнал'));
+        $('[data-style="signal"]')?.click();
+        result.stylePersistence = game.metrics().activeStyle === 'signal' && localStorage.getItem('zg.nova.style') === 'signal' && document.body.dataset.novaStyle === 'signal';
+        const restarting = game.restart();
+        result.restart = ['prepare', 'countdown'].includes(game.state);
+        const interruptedTrack = String(Player.current?.id);
+        Player.next();
+        await restarting; await wait(200);
+        result.trackDuringAnalysis = String(Player.current?.id) !== interruptedTrack && game.state === 'title' && game.metrics().chartNotes === 0;
+        await game.start();
+        await untilPlay();
+        game.finish(false);
+        result.gameOver = game.state === 'result' && game.metrics().result === 'interrupted';
+        $('[data-pg-action="title"]')?.click();
+        result.titleReturn = game.state === 'title' && !Player.playing && game.metrics().activeHolds === 0;
+        result.metrics = game.metrics();
+        result.pass = Object.values(result).every((value) => typeof value !== 'boolean' || value);
+        console.warn('SELFTEST pulse: ' + JSON.stringify(result));
+        return window.zvuk.screenshotReady(300);
+      }
+      if (extra === 'pulseexpert') {
+        game.setDifficulty('expert');
+        await game.start();
+        const m = game.metrics();
+        const report = { difficulty: m.difficulty, laneCount: m.laneCount, notes: m.chartNotes, onsets: m.onsets, bpm: m.bpm, method: m.method, buttons: document.querySelectorAll('[data-lane]').length };
+        report.pass = m.difficulty === 'expert' && m.laneCount === 5 && report.buttons === 5 && report.notes > 0 && report.onsets > 0;
+        console.warn('SELFTEST pulseexpert: ' + JSON.stringify(report));
+        return window.zvuk.screenshotReady(300);
+      }
+      if (extra === 'pulserhythm') {
+        await game.start();
+        const m = game.metrics();
+        const report = { notes: m.chartNotes, onsets: m.onsets, bpm: m.bpm, method: m.method, inferred: m.inferred };
+        report.pass = report.notes > 0 && report.onsets > 0 && report.method === 'spectral-flux';
+        console.warn('SELFTEST pulserhythm: ' + JSON.stringify(report));
+        return window.zvuk.screenshotReady(300);
+      }
+      const starting = game.start();
+      if (extra === 'pulsecount') { await untilState('countdown'); return window.zvuk.screenshotReady(350); }
+      await starting;
+      await untilPlay();
+      if (extra === 'pulseplay' || extra === 'pulsepause') {
+        await game.perfectNext();
+        if (extra === 'pulsepause') game.pause();
+        return window.zvuk.screenshotReady(350);
+      }
+      if (extra === 'pulsewin' || extra === 'pulselose') {
+        if (extra === 'pulseplay') await game.perfectNext();
+        game.finish(extra === 'pulsewin');
+        return window.zvuk.screenshotReady(400);
+      }
+      return window.zvuk.screenshotReady(0);
+    }
+    // Прежний служебный сценарий шутера сохранён только для ручной диагностики старых копий.
+    if (extra.startsWith('legacyPulse')) {
+      const readyPulse = async () => {
+        for (let i = 0; i < 100 && !window.__pulseTest; i++) await wait(100);
+        return Boolean(window.__pulseTest);
+      };
+      if (!await readyPulse()) {
+        console.warn('SELFTEST pulse: {"pass":false,"reason":"renderer-not-ready"}');
+        return window.zvuk.screenshotReady(0);
+      }
+      if (extra === 'pulse' || extra === 'pulsenarrow') return window.zvuk.screenshotReady(500);
+      await silentPlay(0);
+      navigate('pulse');
+      if (!await readyPulse()) return window.zvuk.screenshotReady(0);
+      const game = window.__pulseTest;
+      const untilPlay = async () => {
+        for (let i = 0; i < 60 && game.state !== 'play'; i++) await wait(100);
+        return game.state === 'play';
+      };
+      const key = (code, down = true) => document.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', {
+        key: code === 'Space' ? ' ' : code.startsWith('Key') ? code.slice(3).toLowerCase() : code,
+        code, bubbles: true, cancelable: true,
+      }));
+      const tap = async (code) => { key(code); key(code, false); await wait(35); };
+      if (extra !== 'pulsetest') {
+        $('[data-pg-action="start"]')?.click();
+        if (extra === 'pulsecount') return window.zvuk.screenshotReady(500);
+        await untilPlay();
+      }
+      if (extra === 'pulseplay' || extra === 'pulsepause') {
+        game.pose(0, 6, 0);
+        game.setIntensity(.82);
+        game.spawn('sentinel', 5, -.32);
+        game.spawn('husk', 4.2, .12);
+        game.spawn('skitter', 4.8, .45);
+        game.spawn('elite', 7, -.45);
+        await wait(120);
+        game.fire();
+        if (extra === 'pulsepause') $('[data-pg-action="pause"]')?.click();
+        return window.zvuk.screenshotReady(450);
+      }
+      if (extra === 'pulsewin' || extra === 'pulselose') {
+        if (extra === 'pulsewin') {
+          game.pose(0, 6, 0);
+          game.spawn('husk', 4);
+          game.fire();
+          await wait(280);
+          game.fire();
+          await wait(120);
+          game.finish(true);
+        } else game.damage(1000);
+        return window.zvuk.screenshotReady(500);
+      }
+      if (extra === 'pulserhythm') {
+        game.setIntensity(.12);
+        game.setTempo(.86);
+        await wait(900);
+        const calm = game.metrics();
+        game.setIntensity(.95);
+        await wait(900);
+        const peak = game.metrics();
+        const result = {
+          calm: { drive: calm.drive, beatPeriod: calm.beatPeriod, waveDelay: calm.waveDelay, surge: calm.surge, activeEnemies: calm.activeEnemies },
+          peak: { drive: peak.drive, beatPeriod: peak.beatPeriod, waveDelay: peak.waveDelay, surge: peak.surge, activeEnemies: peak.activeEnemies },
+        };
+        result.denser = peak.waveDelay < calm.waveDelay * .7;
+        result.surge = !calm.surge && peak.surge;
+        result.pass = result.denser && result.surge;
+        console.warn('SELFTEST pulserhythm: ' + JSON.stringify(result));
+        return window.zvuk.screenshotReady(300);
+      }
+      if (extra === 'pulsetest') {
+        const result = {
+          title: false, countdown: false, play: false, forward: false, backward: false, left: false, right: false,
+          turnRight: false, turnLeft: false, shotHit: false, beatShot: false, cover: false, pointerLock: false,
+          mouseLook: false, pause: false, resume: false, overheat: false, cooled: false, telegraph: false,
+          attack: false, pickup: false, sfx: false, calibration: false, seek: false, track: false,
+          victory: false, restart: false, gameOver: false, titleReturn: false,
+        };
+        result.title = game.state === 'title';
+        $('[data-pg-action="start"]')?.click();
+        result.countdown = game.state === 'countdown';
+        result.play = await untilPlay();
+        let before = game.metrics().playerZ;
+        key('KeyW'); await wait(130); key('KeyW', false);
+        result.forward = game.metrics().playerZ < before - .15;
+        before = game.metrics().playerZ;
+        key('KeyS'); await wait(130); key('KeyS', false);
+        result.backward = game.metrics().playerZ > before + .15;
+        before = game.metrics().playerX;
+        key('KeyA'); await wait(130); key('KeyA', false);
+        result.left = game.metrics().playerX < before - .15;
+        before = game.metrics().playerX;
+        key('KeyD'); await wait(130); key('KeyD', false);
+        result.right = game.metrics().playerX > before + .15;
+        before = game.metrics().yaw;
+        key('ArrowRight'); await wait(120); key('ArrowRight', false);
+        result.turnRight = game.metrics().yaw < before - .05;
+        before = game.metrics().yaw;
+        key('ArrowLeft'); await wait(120); key('ArrowLeft', false);
+        result.turnLeft = game.metrics().yaw > before + .05;
+
+        Player.seek(1);
+        game.pose(0, 6, 0);
+        await wait(280);
+        let metrics = game.metrics();
+        game.spawn('husk', 4);
+        await tap('Space');
+        result.shotHit = game.metrics().shots === metrics.shots + 1 && game.metrics().hits === metrics.hits + 1;
+        await wait(250);
+        game.setTempo(.3);
+        await wait(15);
+        metrics = game.metrics();
+        await tap('Space');
+        result.beatShot = game.metrics().beatHits === metrics.beatHits + 1;
+
+        Player.seek(1);
+        game.pose(-3.2, 4.6, 0);
+        await wait(280);
+        metrics = game.metrics();
+        game.spawn('husk', 4);
+        await tap('Space');
+        result.cover = game.metrics().shots === metrics.shots + 1 && game.metrics().hits === metrics.hits;
+
+        Player.seek(1);
+        game.pose(0, 6, 0);
+        const canvas = $('.pulse-canvas');
+        const rect = canvas.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        await window.zvuk.debug.mouse(x, y);
+        await window.zvuk.debug.mouse(x, y, 'mousePressed');
+        await window.zvuk.debug.mouse(x, y, 'mouseReleased');
+        await wait(180);
+        result.pointerLock = game.metrics().pointerLocked;
+        before = game.metrics().yaw;
+        await window.zvuk.debug.mouse(x + 70, y);
+        await wait(120);
+        result.mouseLook = result.pointerLock && Math.abs(game.metrics().yaw - before) > .01;
+        await tap('KeyP');
+        await wait(120);
+        result.pause = game.state === 'pause' && !Player.playing;
+        $('[data-pg-action="resume"]')?.click();
+        await wait(180);
+        result.resume = game.state === 'play' && Player.playing;
+
+        Player.seek(1);
+        game.pose(7, 7, 0);
+        for (let i = 0; i < 7 && !game.metrics().overheated; i++) {
+          await tap('Space');
+          await wait(235);
+        }
+        result.overheat = game.metrics().overheated;
+        for (let i = 0; i < 55 && game.metrics().overheated; i++) await wait(100);
+        result.cooled = result.overheat && !game.metrics().overheated && game.metrics().heat <= 38;
+
+        Player.seek(1);
+        game.pose(0, 6, 0);
+        game.setTempo(.3);
+        metrics = game.metrics();
+        game.spawn('sentinel', 4);
+        for (let i = 0; i < 24 && game.metrics().telegraphs === metrics.telegraphs; i++) await wait(50);
+        result.telegraph = game.metrics().telegraphs > metrics.telegraphs;
+        for (let i = 0; i < 24 && game.metrics().attacks === metrics.attacks; i++) await wait(50);
+        result.attack = game.metrics().attacks > metrics.attacks && game.metrics().health < metrics.health;
+        game.damage(30);
+        before = game.metrics().health;
+        game.pickup(.1);
+        await wait(120);
+        result.pickup = game.metrics().health > before && game.metrics().activePickups === 0;
+
+        const sfx = $('[data-pg-action="sfx"]');
+        const sfxBefore = game.metrics().sfxEnabled;
+        sfx.click();
+        const sfxChanged = game.metrics().sfxEnabled !== sfxBefore && localStorage.getItem('zg.pulse.sfx') === (sfxBefore ? '0' : '1');
+        sfx.click();
+        result.sfx = sfxChanged && game.metrics().sfxEnabled === sfxBefore;
+        const calibration = $('[data-pg="calibration"]');
+        calibration.value = '25';
+        calibration.dispatchEvent(new Event('input', { bubbles: true }));
+        calibration.dispatchEvent(new Event('change', { bubbles: true }));
+        result.calibration = game.metrics().calibration === 25 && localStorage.getItem('zg.pulse.offset') === '25';
+        calibration.value = '0';
+        calibration.dispatchEvent(new Event('input', { bubbles: true }));
+        calibration.dispatchEvent(new Event('change', { bubbles: true }));
+        game.spawn('husk', 1);
+        Player.seek(1);
+        result.seek = game.metrics().activeEnemies === 0;
+        const oldTrack = String(Player.current?.id);
+        Player.next();
+        await wait(600);
+        result.track = String(Player.current?.id) !== oldTrack && game.state === 'title' && game.metrics().activeEnemies === 0;
+        $('[data-pg-action="start"]')?.click();
+        await untilPlay();
+        game.spawn('elite', 5);
+        game.finish(true);
+        result.victory = game.state === 'result' && $('.pulse-shell').dataset.result === 'victory' && game.metrics().activeEnemies === 0;
+        $('[data-pg-action="restart"]')?.click();
+        result.restart = game.state === 'countdown';
+        await untilPlay();
+        game.damage(1000);
+        result.gameOver = game.state === 'result' && $('.pulse-shell').dataset.result === 'game-over' && game.metrics().energy === 0;
+        $('[data-pg-action="title"]')?.click();
+        result.titleReturn = game.state === 'title' && !Player.playing && game.metrics().activeEnemies === 0;
+        result.metrics = game.metrics();
+        result.pass = Object.values(result).every((value) => typeof value !== 'boolean' || value);
+        console.warn('SELFTEST pulse: ' + JSON.stringify(result));
+        return window.zvuk.screenshotReady(300);
+      }
+      return window.zvuk.screenshotReady(0);
+    }
     // служебно: выбрать стиль визуализатора для снимка
     if (params.get('vizstyle')) {
       App.settings.viz.style = params.get('vizstyle');
@@ -1971,10 +2688,11 @@
           content: $(selector)?.textContent?.trim().slice(0, 100) || '',
           error: error?.textContent || null,
           horizontalOverflow: document.documentElement.scrollWidth > innerWidth + 1,
+          strayNova: Boolean(view.querySelector('.nova-context, .home-nova, .wv-nova-companion') || document.querySelector('#novaLive')),
           detachedCanvas: [...document.querySelectorAll('canvas')].filter((c) => !c.isConnected).length,
           perf,
         };
-        entry.pass = found && !error && !entry.horizontalOverflow;
+        entry.pass = found && !error && !entry.horizontalOverflow && !entry.strayNova;
         report.pages.push(entry);
         console.warn(`AUDIT page ${JSON.stringify(entry)}`);
       };
@@ -1983,6 +2701,7 @@
           ['home', {}, '#homeRing'],
           ['popular', {}, '#topList .tr'],
           ['wave', {}, '#waveCosmos'],
+          ['pulse', {}, '.pulse-shell', () => Boolean(window.__pulseTest)],
           ['search', {}, '#searchWaves', () => !$('#searchWaves .skel')],
           ['search', { q: 'Imagine' }, '#view .tr'],
           ['artist', { id: '102622' }, '.artist-hero'],
@@ -2075,9 +2794,19 @@
         }
         report.checks.nowPlayingCycles = Boolean(cyclesOk);
         const popularNav = $('[data-act="nav"][data-view="popular"]');
+        if (!popularNav.offsetParent) {
+          toggleSection('main');
+          await wait(150);
+        }
         const navRect = popularNav.getBoundingClientRect();
         const navHit = document.elementFromPoint(navRect.left + navRect.width / 2, navRect.top + navRect.height / 2);
-        report.checks.nowPlayingHitTest = Boolean(navHit && !navHit.closest('#nowPlaying') && (navHit === popularNav || popularNav.contains(navHit)));
+        report.checks.nowPlayingHitTest = {
+          pass: Boolean(navHit && !navHit.closest('#nowPlaying') && (navHit === popularNav || popularNav.contains(navHit))),
+          visible: Boolean(popularNav.offsetParent),
+          rect: [navRect.left, navRect.top, navRect.width, navRect.height].map(Math.round),
+          hit: navHit ? `${navHit.tagName}#${navHit.id}.${navHit.className}` : null,
+          npOpen: NP.isOpen,
+        };
         NP.vizOn = oldViz;
         Object.assign(Player, { queue: savedPlayer.queue, index: savedPlayer.index, source: savedPlayer.source, original: savedPlayer.original });
         Player.emit('queue');
@@ -2117,19 +2846,44 @@
       $('#aboutCard')?.scrollIntoView({ block: 'center' });
       return window.zvuk.screenshotReady(600);
     }
-    if (extra.startsWith('np')) {
+    if (extra.startsWith('np') && extra !== 'npvizpanel' && extra !== 'npvizimpact') {
       if (extra.includes('play')) await silentPlay(2);
       else {
         const l = firstList();
         if (l) Player.cue(l.tracks, Math.min(2, l.tracks.length - 1), 0, l.source);
         await wait(1500);
       }
-      NP.lyricsOn = extra.includes('lyrics');
+      NP.lyricsOn = extra.includes('lyrics') || extra === 'nplayout';
       NP.vizOn = extra.includes('viz');
       openNowPlaying();
       await wait(2200);
+      if (extra === 'nplayout') {
+        const report = { sizes: [], pass: true };
+        for (const [width, height] of [[1280, 800], [1000, 740], [800, 700], [600, 760]]) {
+          await window.__TAURI__.core.invoke('debug_resize', { width, height });
+          await wait(350);
+          const panel = $('.np-lyrics');
+          const panelRect = panel.getBoundingClientRect();
+          const lines = [...panel.querySelectorAll('.lyrics .ln')];
+          const bounds = lines.map((line) => {
+            const range = document.createRange();
+            range.selectNodeContents(line);
+            const rect = range.getBoundingClientRect();
+            const style = getComputedStyle(line);
+            return rect.left >= panelRect.left - 1 && rect.right <= panelRect.right + 1 && rect.right <= innerWidth + 1 && style.whiteSpace === 'normal' && style.transform === 'none';
+          });
+          const entry = { requested: [width, height], actual: [innerWidth, innerHeight], lines: lines.length, contained: bounds.every(Boolean), documentOverflow: document.documentElement.scrollWidth > innerWidth + 1, panelRight: Math.round(panelRect.right), viewportWidth: innerWidth };
+          entry.pass = lines.length > 0 && entry.contained && !entry.documentOverflow && panelRect.right <= innerWidth + 1;
+          report.sizes.push(entry);
+        }
+        report.pass = report.sizes.every((entry) => entry.pass);
+        console.warn('SELFTEST nplayout-bounds: ' + JSON.stringify(report));
+        await window.__TAURI__.core.invoke('debug_resize', { width: 1280, height: 800 });
+        await wait(350);
+        return window.zvuk.screenshotReady(350);
+      }
       const npStageStyle = getComputedStyle($('.np-stage'));
-      const npCenter = window.innerWidth / 2 - (NP.lyricsOn ? window.innerWidth * 0.22 : 0);
+      const npCenter = window.innerWidth / 2 - (NP.lyricsOn ? window.innerWidth * (window.innerWidth <= 640 ? 0.22 : 0.13) : 0);
       const npParts = ['#npTitle', '.np-seek', '.np-controls'].map((selector) => {
         const r = $(selector).getBoundingClientRect();
         return Math.abs(r.left + r.width / 2 - npCenter) <= 2;
@@ -2234,7 +2988,7 @@
       navigate('settings');
       await wait(650);
       const settingsStates = {};
-      for (const key of ['clipRestart', 'inkEnabled']) {
+      for (const key of ['clipRestart', 'clipKeepPaused', 'inkEnabled']) {
         const b = $(`#clipPrefs [data-vpref="${key}"]`);
         if (!b) {
           settingsStates[key] = false;
@@ -2275,7 +3029,7 @@
       $('#nowPlaying .vz-gear')?.click();
       await wait(300);
       const panelStates = {};
-      for (const key of ['clipRestart', 'inkEnabled']) {
+      for (const key of ['clipRestart', 'clipKeepPaused', 'inkEnabled']) {
         const b = $(`#nowPlaying .vz-panel [data-vpref="${key}"]`);
         if (!b) {
           panelStates[key] = false;
@@ -2307,7 +3061,7 @@
 
       Clip.setPreference('inkEnabled', false);
       await wait(120);
-      const inkOff = Ink.stats.active === 0 && !$('#nowPlaying .water-ink') && ['#npSource', '#npTitle', '#npArtist'].every((s) => !$(s).style.backgroundImage);
+      const inkOff = Ink.stats.active === 0 && !$('#nowPlaying .ink-text') && ['#npSource', '#npTitle', '#npArtist'].every((s) => !$(s).style.backgroundImage && getComputedStyle($(s)).webkitTextStrokeWidth === '0px');
       Clip.setPreference('inkEnabled', true);
       Ink.start();
       console.warn(`SELFTEST clipprefs inkOff=${inkOff}`);
@@ -2380,6 +3134,46 @@
       console.warn(`SELFTEST clipfeedback: pass=${all}`);
       if (!all) console.error('SELFTEST clipfeedback: один или несколько локальных тестов не пройдены');
       await wait(2800);
+    } else if (extra === 'clippause') {
+      const until = async (fn, timeout = 20000) => {
+        const started = performance.now();
+        while (performance.now() - started < timeout) {
+          try { if (fn()) return true; } catch {}
+          await wait(200);
+        }
+        return false;
+      };
+      const visibleMount = () => Clip._debugMounts().find((m) => m.connected && m.ready && m.on);
+      App.settings.viz.bg = 'clip';
+      App.settings.viz.style = 'waves';
+      await silentPlay(2);
+      NP.vizOn = true;
+      openNowPlaying();
+      await wait(1000);
+      await Clip.setLink('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+      const result = { playing: false, hold: false, resume: false, currentMode: false, reopen: false };
+      result.playing = await until(() => visibleMount()?.state === 1, 25000);
+      Clip.setPreference('clipKeepPaused', true);
+      Player.pause();
+      const held = await until(() => Player.audio.paused && visibleMount()?.state === 2, 7000);
+      await wait(500);
+      const timeA = visibleMount()?.time;
+      await wait(900);
+      const timeB = visibleMount()?.time;
+      result.hold = held && Boolean(visibleMount()) && (timeA == null || timeB == null || Math.abs(timeA - timeB) < 0.08);
+      Player.toggle();
+      result.resume = await until(() => !Player.audio.paused && visibleMount()?.state === 1, 9000);
+      Player.pause();
+      await until(() => Player.audio.paused, 3000);
+      Clip.setPreference('clipKeepPaused', false);
+      result.currentMode = await until(() => {
+        const mounts = Clip._debugMounts().filter((m) => m.connected && m.ready);
+        return mounts.length > 0 && mounts.every((m) => !m.on && m.state !== 1);
+      }, 7000);
+      Clip.setPreference('clipKeepPaused', true);
+      result.reopen = await until(() => Player.audio.paused && visibleMount()?.state === 2, 7000);
+      result.pass = Object.entries(result).filter(([key]) => key !== 'pass').every(([, value]) => value === true);
+      console.warn(`SELFTEST clippause: ${JSON.stringify(result)} mounts=${JSON.stringify(Clip._debugMounts())}`);
     } else if (extra === 'ink' || extra === 'inkclip') {
       // «Чернила»: элементы над светлым фоном темнеют, над тёмным — остаются светлыми
       const name = (el) => el.id || [...el.classList].filter((c) => c !== 'inkable').slice(0, 2).join('.');
@@ -2399,29 +3193,33 @@
         $('#nowPlaying .vz-media').appendChild(fake);
         await wait(2500);
         report('split');
-        const water = Ink.state.filter((s) => s.spatial);
-        console.warn(`SELFTEST water: ${water.map((s) => `${name(s.el)}:spread=${s.spread.toFixed(2)}:paints=${s.paints}`).join(' ')} clip=${getComputedStyle($('#npTitle')).backgroundClip} frameMs=${Ink.stats.frameMs.toFixed(1)} period=${Ink.stats.period} width=${Ink.stats.width}`);
-        const testBox = { left: 12, right: 52, top: 14, bottom: 38, width: 40, height: 24 };
-        const flatPx = new Uint8Array(64 * 64).fill(128);
-        const flat = Ink._test.waterField({ w: 64, h: 64, px: flatPx }, testBox, 64, 64);
-        const flatOk = [...flat.field].every((l) => Math.abs(l - 128 / 255) < 0.002);
-        const splitPx = Uint8Array.from({ length: 64 * 64 }, (_, i) => i % 64 < 32 ? 235 : 18);
-        const split = Ink._test.waterField({ w: 64, h: 64, px: splitPx }, testBox, 64, 64);
-        const splitLeft = split.field[6 * Ink._test.width + 5];
-        const splitRight = split.field[6 * Ink._test.width + Math.round(90 * (Ink._test.width - 1) / 95)];
-        const splitOk = splitLeft > 0.86 && splitRight < 0.14;
+        const outlined = Ink.state.filter((s) => s.text);
+        const outlineOk = outlined.length >= 2 && outlined.every((s) => parseFloat(getComputedStyle(s.el).webkitTextStrokeWidth) > 0 && getComputedStyle(s.el).backgroundImage === 'none');
+        console.warn(`SELFTEST outline: elements=${outlined.length} pass=${outlineOk} stroke=${getComputedStyle($('#npTitle')).webkitTextStrokeWidth} color=${getComputedStyle($('#npTitle')).webkitTextStrokeColor} frameMs=${Ink.stats.frameMs.toFixed(1)} period=${Ink.stats.period}`);
+        const decisionOk = Ink._test.desiredInk(0.92, 0) === 1 && Ink._test.desiredInk(0.47, 0) === 0 && Ink._test.desiredInk(0.47, 1) === 1 && Ink._test.desiredInk(0.05, 1) === 0;
+        const antiFlicker = Ink._test.history >= 5 && Ink._test.fade >= 800 && Ink._test.cooldown >= 1000;
         const shadeSamples = [0.5, 0.55, 0.65, 0.85, 0.98].map((l) => ({ l, rgb: Ink._test.darkRGB(l) }));
-        const shadeMonotonic = shadeSamples.every((s, i, a) => !i || s.rgb.every((v, c) => v <= a[i - 1].rgb[c]));
-        const shadeContrast = shadeSamples.every((s) => {
-          const luma = (s.rgb[0] * 0.2126 + s.rgb[1] * 0.7152 + s.rgb[2] * 0.0722) / 255;
-          return Ink._test.contrast(s.l, luma) >= 4.5;
-        });
-        const shadesOk = shadeMonotonic && shadeContrast && shadeSamples[0].rgb[0] - shadeSamples[4].rgb[0] >= 14;
-        console.warn(`SELFTEST ink-precision: flat=${flatOk} split=${splitOk} (${splitLeft.toFixed(2)}→${splitRight.toFixed(2)}) shades=${shadesOk} palette=${JSON.stringify(shadeSamples)}`);
-        if (!flatOk || !splitOk || !shadesOk) console.error('SELFTEST ink-precision: FAILED');
+        const pureBlack = shadeSamples.every((s) => s.rgb.every((v) => v === 0));
+        const shadeContrast = shadeSamples.every((s) => Ink._test.contrast(s.l, Ink._test.rgbLuma(s.rgb)) >= 3);
+        const shadesOk = pureBlack && shadeContrast;
+        let previousTarget = Ink.state.find((s) => s.el.id === 'npTitle')?.target;
+        let rapidFlips = 0;
+        for (let i = 0; i < 14; i++) {
+          fake.style.background = i % 2 ? '#f4f4f4' : '#0e0e12';
+          await wait(190);
+          const target = Ink.state.find((s) => s.el.id === 'npTitle')?.target;
+          if (previousTarget != null && target != null && target !== previousTarget) rapidFlips++;
+          previousTarget = target;
+        }
+        const rapidOk = rapidFlips <= 2;
+        console.warn(`SELFTEST ink-precision: outline=${outlineOk} decisions=${decisionOk} hysteresis=${antiFlicker} rapidFlips=${rapidFlips} rapidOk=${rapidOk} shades=${shadesOk} palette=${JSON.stringify(shadeSamples)}`);
+        if (!outlineOk || !decisionOk || !antiFlicker || !rapidOk || !shadesOk) console.error('SELFTEST ink-precision: FAILED');
         fake.style.background = '#f4f4f4';
         await wait(2000);
-        console.warn(`SELFTEST ink white: dark=${Ink.state.filter((s) => s.target).length}/${Ink.state.length} orb=${getComputedStyle($('#npPlay')).color}`);
+        const darkTextStyle = getComputedStyle($('#npTitle'));
+        const noWhiteGlow = pureBlack && Ink.state.find((s) => s.el.id === 'npTitle')?.ink > 0.98 && !/(?:255|245|250)/.test(darkTextStyle.textShadow + darkTextStyle.webkitTextStrokeColor);
+        console.warn(`SELFTEST ink white: dark=${Ink.state.filter((s) => s.target).length}/${Ink.state.length} pureBlack=${pureBlack} noWhiteGlow=${noWhiteGlow} shadow=${darkTextStyle.textShadow} stroke=${darkTextStyle.webkitTextStrokeColor}`);
+        if (!noWhiteGlow) console.error('SELFTEST ink black glow: FAILED');
         fake.style.background = 'linear-gradient(90deg,#f2f2f2 0 50%,#0e0e12 50% 100%)';
         await wait(2200);
       } else {
@@ -2559,6 +3357,229 @@
       console.warn(`SELFTEST paused: framesPerSec=${vt() - f2} (мини-визуализатор спит)`);
       $('#scroller').scrollTop = 1180;
       await wait(1200);
+    } else if (extra === 'vizoff') {
+      await silentPlay(0);
+      $('.vz-gear')?.click();
+      await wait(150);
+      $('[data-vk="style"][data-vv="particles"]')?.click();
+      await wait(650);
+      const hasPixels = () => {
+        const canvas = $('.vz-canvas');
+        if (!canvas?.width || !canvas.height) return false;
+        const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+        for (let i = 3; i < data.length; i += 16) if (data[i]) return true;
+        return false;
+      };
+      const hadEffect = hasPixels();
+      Player.pause();
+      await wait(120);
+      $('[data-vk="style"][data-vv="off"]')?.click();
+      await wait(140);
+      const result = { hadEffect, paused: Player.audio.paused, styleOff: App.settings.viz.style === 'off', cleared: !hasPixels() };
+      result.pass = Object.values(result).every((value) => value === true);
+      console.warn(`SELFTEST vizoff: ${JSON.stringify(result)}`);
+    } else if (extra === 'npvizimpact') {
+      await silentPlay(0);
+      NP.vizOn = true;
+      openNowPlaying();
+      await wait(1300);
+      const gear = $('.np .vz-gear');
+      const panel = $('.np .vz-controls');
+      gear?.click();
+      await wait(350);
+      panel?.querySelector('[data-vk="style"][data-vv="impact"]')?.click();
+      const style = App.settings.viz.style === 'impact';
+      const layer = $('.np .cf-item.cur .cf-art');
+      const media = $('.np .vz-media');
+      const stage = $('.np-stage');
+      const matrixScale = (el) => {
+        const value = getComputedStyle(el).transform;
+        const match = value && value !== 'none' ? value.match(/^matrix\(([^,]+)/) : null;
+        return match ? Number(match[1]) : 1;
+      };
+      const stageTransform = getComputedStyle(stage).transform;
+      const panelTransform = getComputedStyle(panel).transform;
+      let controlsFixed = Boolean(layer && !layer.contains(stage) && !layer.contains(panel) && !panel.classList.contains('hidden'));
+      const sample = async (target) => {
+        let minScale = matrixScale(target);
+        let maxScale = minScale;
+        let minWidth = target.getBoundingClientRect().width;
+        let maxWidth = minWidth;
+        let maxPunch = 1;
+        let maxLight = 1;
+        for (let i = 0; i < 60; i++) {
+          await wait(60);
+          const punch = Number(getComputedStyle(target).getPropertyValue('--bass-punch')) || 1;
+          const light = Number(getComputedStyle(target).getPropertyValue('--bass-light')) || 1;
+          const scale = matrixScale(target);
+          const width = target.getBoundingClientRect().width;
+          maxPunch = Math.max(maxPunch, punch);
+          maxLight = Math.max(maxLight, light);
+          minScale = Math.min(minScale, scale);
+          maxScale = Math.max(maxScale, scale);
+          minWidth = Math.min(minWidth, width);
+          maxWidth = Math.max(maxWidth, width);
+          controlsFixed = controlsFixed && getComputedStyle(stage).transform === stageTransform && getComputedStyle(panel).transform === panelTransform;
+        }
+        return { maxPunch, maxLight, minScale, maxScale, layerDelta: maxWidth - minWidth,
+          effect: maxPunch > 1.0001 && maxLight > 1.0001 && maxScale > 1.0001 && maxScale - minScale > 0.0001 };
+      };
+      // Детерминированный бас проверяет именно видимую обложку и обёртку клипа.
+      const analyser = AudioFX.analyser;
+      const readFrequency = analyser.getByteFrequencyData;
+      analyser.getByteFrequencyData = (data) => {
+        const strong = performance.now() % 720 < 180;
+        data.fill(strong ? 35 : 12);
+        for (let i = 0; i < Math.min(12, data.length); i++) data[i] = strong ? 245 : 25;
+      };
+      let cover;
+      let clip;
+      let coverOffScale = 1;
+      let clipOffScale = 1;
+      let coverAfterClip = 1;
+      const hadClipBox = media.classList.contains('clip-box');
+      const hadClipOn = media.classList.contains('clip-on');
+      try {
+        cover = await sample(layer);
+        panel?.querySelector('[data-vk="style"][data-vv="off"]')?.click();
+        await wait(140);
+        coverOffScale = matrixScale(layer);
+        media.classList.add('clip-box', 'clip-on');
+        panel?.querySelector('[data-vk="style"][data-vv="impact"]')?.click();
+        clip = await sample(media);
+        coverAfterClip = matrixScale(layer);
+        panel?.querySelector('[data-vk="style"][data-vv="off"]')?.click();
+        await wait(140);
+        clipOffScale = matrixScale(media);
+      } finally {
+        analyser.getByteFrequencyData = readFrequency;
+        media.classList.toggle('clip-box', hadClipBox);
+        media.classList.toggle('clip-on', hadClipOn);
+      }
+      const result = {
+        style, target: Boolean(layer && media), cover, clip, controlsFixed,
+        coverOffScale, clipOffScale, coverAfterClip,
+        offReset: Math.abs(coverOffScale - 1) < .0001 && Math.abs(clipOffScale - 1) < .0001 && Math.abs(coverAfterClip - 1) < .0001,
+        layerMoves: cover.layerDelta > 1 && clip.layerDelta > 1,
+      };
+      result.pass = result.style && result.target && cover.effect && clip.effect && result.offReset && result.layerMoves && result.controlsFixed;
+      console.warn(`SELFTEST npvizimpact: ${JSON.stringify(result)}`);
+      panel?.querySelector('[data-vk="style"][data-vv="impact"]')?.click();
+      panel?.querySelector('[data-vclose]')?.click();
+      await wait(700);
+    } else if (extra === 'vizimpact') {
+      await silentPlay(0);
+      $('.vz-gear')?.click();
+      await wait(150);
+      $('[data-vk="style"][data-vv="impact"]')?.click();
+      $('[data-vclose]')?.click();
+      let maxPunch = 1;
+      let maxLight = 1;
+      let maxScale = 1;
+      let moderatePunch = 1;
+      let maxTranslation = 0;
+      let layer = null;
+      const analyser = AudioFX.analyser;
+      const readFrequency = analyser.getByteFrequencyData;
+      const started = performance.now();
+      analyser.getByteFrequencyData = (data) => {
+        if (performance.now() - started > 2400) {
+          data.fill(72);
+          for (let i = 0; i < Math.min(12, data.length); i++) data[i] = 62;
+          return;
+        }
+        const strong = performance.now() % 720 < 180;
+        data.fill(strong ? 35 : 12);
+        for (let i = 0; i < Math.min(12, data.length); i++) data[i] = strong ? 245 : 25;
+      };
+      try {
+        for (let i = 0; i < 80; i++) {
+          await wait(60);
+          layer = $('.vz-stage .clip-box.clip-on') || $('.vz-stage .vz-cover');
+          if (!layer) continue;
+          const punch = Number(getComputedStyle(layer).getPropertyValue('--bass-punch')) || 1;
+          maxPunch = Math.max(maxPunch, punch);
+          if (i >= 40) moderatePunch = Math.max(moderatePunch, punch);
+          maxLight = Math.max(maxLight, Number(getComputedStyle(layer).getPropertyValue('--bass-light')) || 1);
+          const transform = getComputedStyle(layer).transform;
+          const matrix = transform.match(/^matrix\(([^)]+)\)/)?.[1].split(',').map(Number);
+          maxScale = Math.max(maxScale, Number(matrix?.[0]) || 1);
+          if (matrix?.length === 6) maxTranslation = Math.max(maxTranslation, Math.abs(matrix[4]), Math.abs(matrix[5]));
+        }
+      } finally {
+        analyser.getByteFrequencyData = readFrequency;
+      }
+      const result = { style: App.settings.viz.style === 'impact', target: Boolean(layer), effect: maxPunch > 1.0001 && maxLight > 1.0001 && maxScale > 1.0001, moderateResponse: moderatePunch > 1.008, noShake: maxTranslation < .01, maxPunch, moderatePunch, maxLight, maxScale, maxTranslation };
+      result.pass = result.style && result.target && result.effect && result.moderateResponse && result.noShake;
+      console.warn(`SELFTEST vizimpact: ${JSON.stringify(result)}`);
+    } else if (extra === 'clipoffset') {
+      await silentPlay(0);
+      NP.vizOn = true;
+      openNowPlaying();
+      await wait(1300);
+      $('.np .vz-gear')?.click();
+      let offset = null;
+      for (let i = 0; i < 30 && !offset; i++) { offset = $('.np .vz-offset'); if (!offset) await wait(200); }
+      offset?.scrollIntoView({ block: 'center' });
+      await wait(250);
+      const minus = offset?.querySelector('[data-vclip="minus"]')?.getBoundingClientRect();
+      const value = offset?.querySelector('b')?.getBoundingClientRect();
+      const plus = offset?.querySelector('[data-vclip="plus"]')?.getBoundingClientRect();
+      const midpoint = minus && plus ? (minus.left + minus.width / 2 + plus.left + plus.width / 2) / 2 : 0;
+      const centered = Boolean(value && midpoint && Math.abs(value.left + value.width / 2 - midpoint) <= 2);
+      console.warn(`SELFTEST clipoffset: ${JSON.stringify({ visible: Boolean(offset), centered, pass: Boolean(offset && centered) })}`);
+    } else if (extra === 'vizparticles') {
+      await silentPlay(0);
+      $('.vz-gear')?.click();
+      await wait(160);
+      $('[data-vk="style"][data-vv="particles"]')?.click();
+      await wait(650);
+      $('[data-vclose]')?.click();
+      console.warn(`SELFTEST vizparticles: style=${App.settings.viz.style} bg=${App.settings.viz.bg} panelClosed=${$('.vz-controls')?.classList.contains('hidden')}`);
+      await wait(450);
+    } else if (extra === 'vizpanel' || extra === 'npvizpanel') {
+      await silentPlay(0);
+      if (extra === 'npvizpanel') {
+        NP.vizOn = true;
+        openNowPlaying();
+        await wait(1300);
+      }
+      const scope = extra === 'npvizpanel' ? '.np' : '#vizStage';
+      const gear = $(`${scope} .vz-gear`);
+      const panel = $(`${scope} .vz-controls`);
+      gear?.click();
+      await wait(180);
+      const result = { open: false, allStyles: false, presets: false, range: false, dim: false, close: false, reopened: false };
+      result.open = panel && !panel.classList.contains('hidden') && gear.getAttribute('aria-expanded') === 'true';
+      let stylesOk = true;
+      for (const style of VizScene.STYLES) {
+        panel.querySelector(`[data-vk="style"][data-vv="${style.id}"]`)?.click();
+        await wait(45);
+        stylesOk = stylesOk && App.settings.viz.style === style.id && panel.querySelector(`[data-vv="${style.id}"]`)?.getAttribute('aria-pressed') === 'true';
+      }
+      result.allStyles = stylesOk;
+      panel.querySelector('[data-vk="style"][data-vv="waves"]')?.click();
+      let presetsOk = true;
+      for (const value of [.65, 1.55, 1]) {
+        panel.querySelector(`[data-vresponse="${value}"]`)?.click();
+        presetsOk = presetsOk && App.settings.viz.sensitivity === value;
+      }
+      result.presets = presetsOk;
+      const response = panel.querySelector('[data-vr="sensitivity"]');
+      response.value = '.85';
+      response.dispatchEvent(new Event('input', { bubbles: true }));
+      result.range = App.settings.viz.sensitivity === .85 && panel.querySelector('[data-vvalue="sensitivity"]')?.textContent.includes('0,85');
+      const dim = panel.querySelector('[data-vr="dim"]');
+      dim.value = '47';
+      dim.dispatchEvent(new Event('input', { bubbles: true }));
+      result.dim = App.settings.viz.dim === 47 && panel.querySelector('[data-vvalue="dim"]')?.textContent === '47%';
+      panel.querySelector('[data-vclose]')?.click();
+      result.close = panel.classList.contains('hidden') && gear.getAttribute('aria-expanded') === 'false';
+      gear.click();
+      await wait(120);
+      result.reopened = !panel.classList.contains('hidden') && App.settings.viz.sensitivity === .85 && App.settings.viz.dim === 47;
+      result.pass = Object.values(result).every((value) => value === true);
+      console.warn(`SELFTEST ${extra}: ${JSON.stringify(result)}`);
     } else if (extra === 'vizplay' || extra === 'eqplay') {
       await silentPlay(0);
       if (extra === 'eqplay') {
@@ -2571,6 +3592,210 @@
       if (st) st.dispatchEvent(new PointerEvent('pointermove', { bubbles: true }));
       if (App.route?.view === 'equalizer') App.rerender();
       await wait(900);
+    } else if (extra === 'eqlock') {
+      const initial = structuredClone(AudioFX.eq);
+      AudioFX.setLocked(false);
+      AudioFX.setPreset('flat');
+      await wait(80);
+      $('#eqLock').click();
+      await wait(420);
+      const saved = await window.zvuk.settings.get();
+      const result = {
+        locked: AudioFX.eq.locked && $('#eqLock').getAttribute('aria-pressed') === 'true' && $('#eqPanel').classList.contains('locked') && $('#eqPresets [data-eqp="rock"]').disabled && getComputedStyle($('#eqPanel .vs')).pointerEvents === 'none',
+        persisted: saved.eq?.locked === true,
+        protected: false, unlocked: false, changed: false, restored: false,
+      };
+      $('#eqPresets [data-eqp="rock"]').click();
+      result.protected = AudioFX.eq.preset === 'flat';
+      $('#eqLock').click();
+      await wait(100);
+      result.unlocked = !AudioFX.eq.locked && !$('#eqPresets [data-eqp="rock"]').disabled;
+      $('#eqPresets [data-eqp="rock"]').click();
+      result.changed = AudioFX.eq.preset === 'rock';
+      AudioFX.eq = { ...initial, bands: initial.bands.slice(), user: (initial.user || []).map((p) => ({ ...p, bands: p.bands.slice() })) };
+      AudioFX._changed();
+      result.restored = AudioFX.eq.preset === initial.preset;
+      AudioFX.setLocked(true);
+      result.pass = Object.entries(result).filter(([key]) => key !== 'pass').every(([, value]) => value === true);
+      console.warn(`SELFTEST eqlock: ${JSON.stringify(result)}`);
+    } else if (extra === 'headphoneeq' || extra === 'headphoneeqsony') {
+      const initial = structuredClone(AudioFX.eq);
+      if (AudioFX.eq.locked) {
+        AudioFX.setLocked(false);
+        await wait(60);
+      }
+      const result = { models: HeadphoneEQ.models.length, presets: {}, drawers: {}, standard: false, restored: false };
+      for (const model of HeadphoneEQ.models) {
+        const card = $(`[data-hq-model="${model.id}"]`);
+        const toggle = card.querySelector('[data-hq-toggle]');
+        toggle.click();
+        await wait(520);
+        const drawer = card.querySelector('.hq-drawer');
+        result.drawers[model.id] = {
+          open: card.classList.contains('open') && toggle.getAttribute('aria-expanded') === 'true' && !drawer.inert && drawer.getBoundingClientRect().height > 100,
+          presets: card.querySelectorAll('.hq-preset').length === model.presets.length,
+        };
+        for (const preset of model.presets) {
+          card.querySelector(`[data-eqp="${preset.id}"]`).click();
+          await wait(100);
+          result.presets[preset.id] = AudioFX.eq.preset === preset.id && AudioFX.eq.enabled && AudioFX.eq.preamp === preset.preamp && preset.bands.every((v, i) => AudioFX.eq.bands[i] === v);
+        }
+        toggle.click();
+        await wait(520);
+        result.drawers[model.id].closed = !card.classList.contains('open') && drawer.inert && drawer.getBoundingClientRect().height < 5;
+      }
+      AudioFX.setPreset('rock');
+      result.standard = AudioFX.eq.preset === 'rock' && AudioFX.presetName() === 'Рок';
+      AudioFX.eq = { ...initial, bands: initial.bands.slice(), user: (initial.user || []).map((p) => ({ ...p, bands: p.bands.slice() })) };
+      AudioFX._changed();
+      result.restored = AudioFX.eq.preset === initial.preset && AudioFX.eq.bands.every((v, i) => v === initial.bands[i]);
+      const shownModel = extra === 'headphoneeqsony' ? 'sony' : 'nothing';
+      $(`[data-hq-toggle="${shownModel}"]`).click();
+      await wait(600);
+      $(`[data-hq-model="${shownModel}"]`).scrollIntoView({ block: 'start' });
+      await wait(500);
+      result.pass = result.models === 2 && result.standard && result.restored && Object.values(result.presets).every(Boolean) && Object.values(result.drawers).every((d) => d.open && d.presets && d.closed);
+      console.warn(`SELFTEST headphoneeq: ${JSON.stringify(result)}`);
+    } else if (extra === 'virtuallists') {
+      AudioFX.setVolume(0);
+      Player._applyVolume = () => AudioFX.setVolume(0);
+      navigate('popular');
+      for (let i = 0; i < 60 && !$('#topList .tr'); i++) await wait(250);
+      if ($('#topList')?.classList.contains('collapsed')) $('[data-act="top-toggle"]').click();
+      await wait(650);
+      const root = $('#topList .tracks.virtualized');
+      const list = root ? UI.Lists.get(root.dataset.listRoot) : null;
+      const result = { virtualized: false, count: false, height: false, deepRows: false, click: false };
+      if (root && list) {
+        const total = list.tracks.length;
+        result.virtualized = total >= 36 && root.dataset.virtualized === 'true';
+        result.count = root.querySelectorAll('.tr').length > 0 && root.querySelectorAll('.tr').length < total;
+        result.height = root.scrollHeight >= total * 55;
+        const sc = $('#scroller');
+        const rootTop = root.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop;
+        sc.scrollTop = rootTop + 60 * 60;
+        await wait(600);
+        const rows = [...root.querySelectorAll('.tr')];
+        const target = rows[Math.min(2, rows.length - 1)];
+        const index = Number(target?.dataset.idx);
+        if (target) {
+          result.deepRows = Number(rows[0].dataset.idx) > 30 && Number(target.dataset.idx) === index;
+          target.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+          await wait(450);
+          result.click = String(Player.current?.id) === String(list.tracks[index]?.id);
+        }
+        sc.scrollTop = 0;
+        await wait(350);
+      }
+      result.pass = Object.entries(result).filter(([key]) => key !== 'pass').every(([, value]) => value === true);
+      console.warn(`SELFTEST virtuallists: ${JSON.stringify(result)} domRows=${root?.querySelectorAll('.tr').length || 0} total=${list?.tracks.length || 0}`);
+    } else if (extra === 'quality') {
+      App.setPerformanceMode(App.settings.performanceMode || 'auto');
+      const initial = App.settings.performanceMode;
+      const result = { buttons: false, saved: false, eco: false, full: false, legacy: false, restored: false };
+      navigate('settings');
+      await wait(750);
+      result.buttons = $$('[data-act="performance-mode"]').length === 3;
+      for (const mode of ['full', 'eco']) {
+        const button = $(`[data-act="performance-mode"][data-mode="${mode}"]`);
+        button.click();
+        await wait(420);
+        result[mode] = App.settings.performanceMode === mode && button.classList.contains('on') && (mode !== 'eco' || document.body.classList.contains('perf-eco'));
+      }
+      const saved = await window.zvuk.settings.get();
+      result.saved = saved.performanceMode === 'eco';
+      navigate('wave');
+      await wait(650);
+      if (Player.source?.kind !== 'wave' || !Player.playing) $('#waveOrb').click();
+      for (let i = 0; i < 72 && (!Player.current || Player.audio.paused); i++) await wait(250);
+      const r = $('#waveFocusBtn').getBoundingClientRect();
+      const x = r.left + r.width / 2;
+      const y = r.top + r.height / 2;
+      for (let attempt = 0; attempt < 2 && !document.body.classList.contains('wave-focus'); attempt++) {
+        await window.zvuk.debug.mouse(x, y);
+        await window.zvuk.debug.mouse(x, y, 'mousePressed');
+        await window.zvuk.debug.mouse(x, y, 'mouseReleased');
+        await wait(350);
+      }
+      for (let i = 0; i < 70 && !($('.wv-hero')?._orbit3d?.getStats().frames > 4); i++) await wait(150);
+      const orbit = $('.wv-hero')?._orbit3d;
+      if (orbit) {
+        const fullDpr = orbit.getStats().pixelRatio;
+        App.setPerformanceMode('eco');
+        await wait(250);
+        result.eco = orbit.getStats().performanceMode === 'eco' && orbit.getStats().pixelRatio === fullDpr;
+        App.setPerformanceMode('full');
+        await wait(250);
+        result.full = orbit.getStats().performanceMode === 'full' && orbit.getStats().pixelRatio === fullDpr;
+        App.setPerformanceMode('high');
+        result.legacy = App.settings.performanceMode === 'full';
+        App.setPerformanceMode('balanced');
+        result.legacy = result.legacy && App.settings.performanceMode === 'auto';
+      } else {
+        result.eco = result.full = result.legacy = false;
+      }
+      App.setPerformanceMode(initial);
+      navigate('settings');
+      await wait(500);
+      $('#perfModes').scrollIntoView({ block: 'center' });
+      result.restored = App.settings.performanceMode === initial && $('[data-act="performance-mode"][data-mode="' + initial + '"]').classList.contains('on');
+      result.pass = Object.entries(result).filter(([key]) => key !== 'pass').every(([, value]) => value === true);
+      console.warn(`SELFTEST quality: ${JSON.stringify(result)}`);
+    } else if (extra === 'scrollperf') {
+      await silentPlay(0);
+      AudioFX.setVolume(0);
+      const routes = ['home', 'popular', 'liked', 'albums', 'artists', 'settings', 'equalizer'];
+      const results = [];
+      for (const route of routes) {
+        const navStarted = performance.now();
+        navigate(route);
+        await new Promise(requestAnimationFrame);
+        const navPaint = performance.now() - navStarted;
+        await wait(1200);
+        const sc = $('#scroller');
+        sc.scrollTop = 0;
+        await wait(200);
+        const maxScroll = Math.max(0, sc.scrollHeight - sc.clientHeight);
+        const intervals = [];
+        const longFrames = [];
+        let observer = null;
+        try {
+          observer = new PerformanceObserver((list) => longFrames.push(...list.getEntries()));
+          observer.observe({ type: 'long-animation-frame' });
+        } catch {}
+        const started = await new Promise((resolve) => {
+          let begin = 0;
+          let last = 0;
+          const duration = 1600;
+          const step = (now) => {
+            if (!begin) { begin = now; last = now; }
+            const p = Math.min(1, (now - begin) / duration);
+            intervals.push(now - last);
+            last = now;
+            sc.scrollTop = maxScroll * (1 - Math.cos(p * Math.PI * 2)) * 0.5;
+            if (p < 1) requestAnimationFrame(step);
+            else resolve(begin);
+          };
+          requestAnimationFrame(step);
+        });
+        observer?.disconnect();
+        const elapsed = performance.now() - started;
+        const sorted = intervals.slice(1).sort((a, b) => a - b);
+        const fps = intervals.length * 1000 / elapsed;
+        const p95 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] || 0;
+        const offenders = {};
+        for (const entry of longFrames) {
+          for (const script of entry.scripts || []) {
+            const name = script.sourceFunctionName || script.invoker || script.sourceURL || 'unknown';
+            offenders[name] = (offenders[name] || 0) + (script.duration || 0);
+          }
+        }
+        const item = { route, fps: +fps.toFixed(1), p95: +p95.toFixed(1), slow: intervals.filter((v) => v > 34).length, longMs: Math.round(longFrames.reduce((s, e) => s + e.duration, 0)), navPaint: Math.round(navPaint), maxScroll, offenders: Object.entries(offenders).sort((a, b) => b[1] - a[1]).slice(0, 3) };
+        results.push(item);
+        console.warn(`SCROLLPERF ${JSON.stringify(item)}`);
+      }
+      const scrolling = results.filter((r) => r.maxScroll > 20);
+      console.warn(`SELFTEST scrollperf: ${JSON.stringify({ averageFps: +(scrolling.reduce((s, r) => s + r.fps, 0) / Math.max(1, scrolling.length)).toFixed(1), totalLongMs: results.reduce((s, r) => s + r.longMs, 0), results })}`);
     } else if (extra === 'perf') {
       // Замер плавности: интервалы между кадрами и «длинные кадры» основного потока
       await silentPlay(0);
@@ -2818,7 +4043,8 @@
         await wait(2600);
         console.warn(`SELFTEST clipsync before off=${off}: paused=${Player.audio.paused} t=${Player.audio.currentTime.toFixed(2)} gain=${AudioFX.vol && AudioFX.vol.gain.value.toFixed(3)} ducked=${AudioFX.ducked} level=${Viz.level.toFixed(3)}`);
         await Clip.calibrate(true);
-        console.warn(`SELFTEST clipsync try off=${off}: ${Clip.sync.state} ${Clip.sync.message} t=${Player.audio.currentTime.toFixed(2)}`);
+        const novaSync = Nova._stateForTest().sync;
+        console.warn(`SELFTEST clipsync try off=${off}: ${Clip.sync.state} ${Clip.sync.message} t=${Player.audio.currentTime.toFixed(2)} nova=${JSON.stringify(novaSync)}`);
         if (Clip.sync.state === 'done') break;
       }
       if (Clip.sync.state === 'done') {
@@ -2982,22 +4208,18 @@
       await wait(600);
       console.warn(`SELFTEST ringseek: visible=${visible} home=${home} arrow=${arrow} clicked=${clicked} dragged=${dragged} centerButton=${centerButton} progress=${(Player.audio.currentTime / Player.audio.duration).toFixed(2)} duration=${Player.audio.duration.toFixed(1)} radius=${ring._ringGeometry.r.toFixed(1)}`);
     } else if (extra === 'waverings') {
-      // «Кольца Сатурна»: переключение туда-обратно и та же тема на главной.
-      localStorage.setItem('zg.waveScene', 'rings');
+      // Единственная оконная тема не зависит от устаревшего сохранённого выбора.
+      localStorage.setItem('zg.waveScene', 'tide');
       App.rerender();
       await wait(1200);
       const rings = $('#waveCosmos').dataset.scene === 'rings' && $('.wv-portal-label').textContent.includes('Кольца Сатурна');
-      $('#waveSceneBtn').click();
-      await wait(400);
-      const backToTide = $('#waveCosmos').dataset.scene === 'tide' && $('.wv-portal-label').textContent.includes('Орбитальный прилив');
-      $('#waveSceneBtn').click();
-      await wait(400);
+      const noToggle = !$('#waveSceneBtn') && !$('[data-act="wave-scene"]');
       $('.nav-item[data-view="home"]').click();
       await wait(1500);
       const homeRings = $('#homeRing')?.dataset.scene === 'rings' && $('.home-wave-signature').textContent === 'Кольца Сатурна';
       $('.nav-item[data-view="wave"]').click();
       await wait(1200);
-      console.warn(`SELFTEST waverings: rings=${rings} backToTide=${backToTide} homeRings=${homeRings} scene=${$('#waveCosmos').dataset.scene} label=${$('.wv-portal-label').textContent}`);
+      console.warn(`SELFTEST waverings: rings=${rings} noToggle=${noToggle} homeRings=${homeRings} scene=${$('#waveCosmos').dataset.scene} label=${$('.wv-portal-label').textContent}`);
     } else if (extra === 'wavefocus') {
       // Погружение: настоящий клик, полный экран, выход по Esc и повторный вход.
       const clickFocus = async () => {
@@ -3019,6 +4241,244 @@
       await wait(1000);
       const restored = document.body.classList.contains('wave-focus');
       console.warn(`SELFTEST wavefocus: active=${active} consoleOff=${consoleOff} escaped=${escaped} restored=${restored} full=${Boolean(document.fullscreenElement)} scene=${$('#waveCosmos').dataset.scene} hero=${Math.round($('.wv-hero').clientHeight)} viewport=${$('#scroller').clientHeight}`);
+    } else if (extra === 'orbit3dzoom') {
+      AudioFX.setVolume(0);
+      Player._applyVolume = () => AudioFX.setVolume(0);
+      if (Player.source?.kind !== 'wave' || !Player.playing) $('#waveOrb').click();
+      for (let i = 0; i < 72 && (!Player.current || Player.audio.paused); i++) await wait(250);
+      const clickFocus = async () => {
+        const r = $('#waveFocusBtn').getBoundingClientRect();
+        const x = r.left + r.width / 2;
+        const y = r.top + r.height / 2;
+        await window.zvuk.debug.mouse(x, y);
+        await window.zvuk.debug.mouse(x, y, 'mousePressed');
+        await window.zvuk.debug.mouse(x, y, 'mouseReleased');
+      };
+      for (let attempt = 0; attempt < 2 && !document.body.classList.contains('wave-focus'); attempt++) {
+        await clickFocus();
+        await wait(400);
+      }
+      for (let i = 0; i < 60 && !($('.wv-hero')?._orbit3d?.getStats().frames > 4); i++) await wait(150);
+      const canvas = $('.wv-3d-canvas');
+      const rect = canvas.getBoundingClientRect();
+      for (let i = 0; i < 7; i++) {
+        canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -240, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2, bubbles: true, cancelable: true }));
+        await wait(120);
+      }
+      await wait(900);
+      const orbit = $('.wv-hero')?._orbit3d;
+      const distance = orbit ? Math.hypot(...orbit.getStats().camera) : 0;
+      console.warn(`SELFTEST orbit3dzoom: ready=${Boolean(orbit)} distance=${distance.toFixed(2)} zoomed=${distance > 0 && distance < 8.4} wide=${rect.width > $('.wv-portal').getBoundingClientRect().width * 1.6}`);
+    } else if (extra === 'orbit3d') {
+      // Новая WebGL-сцена: реальные указатель, колесо, клавиатура, жизненный цикл и FPS.
+      AudioFX.setVolume(0);
+      Player._applyVolume = () => {
+        AudioFX.setVolume(0);
+        Player.emit('volume', { volume: Player.volume, muted: Player.muted });
+      };
+      const until = async (fn, timeout = 15000) => {
+        const started = performance.now();
+        while (performance.now() - started < timeout) {
+          try { if (fn()) return true; } catch {}
+          await wait(150);
+        }
+        return false;
+      };
+      const clickFocus = async () => {
+        const r = $('#waveFocusBtn').getBoundingClientRect();
+        const x = r.left + r.width / 2;
+        const y = r.top + r.height / 2;
+        await window.zvuk.debug.mouse(x, y);
+        await window.zvuk.debug.mouse(x, y, 'mousePressed');
+        await window.zvuk.debug.mouse(x, y, 'mouseReleased');
+      };
+      const enter = async () => {
+        for (let attempt = 0; attempt < 2 && !document.body.classList.contains('wave-focus'); attempt++) {
+          await clickFocus();
+          await wait(350);
+        }
+        return until(() => $('.wv-hero')?._orbit3d?.getStats().frames > 4, 12000);
+      };
+      if (Player.source?.kind !== 'wave' || !Player.playing) $('#waveOrb').click();
+      const playing = await until(() => Player.source?.kind === 'wave' && Player.playing && !Player.audio.paused && isFinite(Player.audio.duration), 18000);
+      const ready = await enter();
+      await until(() => $('.wv-3d-loader.hidden'), 6000);
+      const hero = $('.wv-hero');
+      const orbit = hero?._orbit3d;
+      const result = { ready, playing, asset: hero?.dataset.orbitAsset || 'none' };
+      if (orbit) {
+        const canvas = $('.wv-3d-canvas');
+        const mouse = (x, y, kind) => window.zvuk.debug.mouse(x, y, kind);
+        const distance = (a) => Math.hypot(...a);
+        result.leftTransport = $('#waveOrb').parentElement.id === 'wavePlaySlot';
+        result.worldCount = orbit.getStats().worldCount === 6;
+        const focusCover = $('.wv-now img');
+        const focusPanelHeight = $('.wv-copy').clientHeight;
+        result.largePanel = focusCover && focusCover.getBoundingClientRect().width > 170 && focusPanelHeight > innerHeight * 0.4 && parseFloat(getComputedStyle($('.wv-now .nt div')).fontSize) >= 17;
+        result.compactPanel = focusPanelHeight <= innerHeight - 60 && getComputedStyle($('.wv-copy')).alignSelf === 'center';
+        result.coverHighRes = focusCover && focusCover.src === cover(Player.current, 600);
+        result.artistLink = Boolean($('.wv-now .a [data-view="artist"]'));
+        result.mainHint = $('.wv-hero').dataset.mainHint === 'ready';
+        const rect = canvas.getBoundingClientRect();
+        result.wideCanvas = rect.width > $('.wv-portal').getBoundingClientRect().width * 1.6;
+        result.orbitShifted = orbit.getWorldTargets().find((w) => w.id === 'any').x < rect.left + rect.width * 0.48;
+        result.leftSeekBound = Boolean($('#waveSeek')?._seekUI);
+        const focusPanelRect = $('.wv-copy').getBoundingClientRect();
+        const footerRect = $('.wv-focus-footer').getBoundingClientRect();
+        result.footerMoved = Math.abs(footerRect.left - focusPanelRect.left) < 3 && footerRect.top >= focusPanelRect.bottom - 2 && footerRect.bottom <= innerHeight;
+        const x = rect.left + rect.width * 0.55;
+        const y = rect.top + rect.height * 0.2;
+        const cameraBefore = orbit.getStats().camera;
+        await mouse(x, y);
+        await mouse(x, y, 'mousePressed');
+        for (let i = 1; i <= 9; i++) {
+          await mouse(x + i * 9, y + i * 3, 'mouseDragged');
+          await wait(22);
+        }
+        await mouse(x + 81, y + 27, 'mouseReleased');
+        await wait(500);
+        const cameraDragged = orbit.getStats().camera;
+        result.drag = Math.hypot(...cameraDragged.map((v, i) => v - cameraBefore[i])) > 0.08;
+        const zoomBefore = distance(cameraDragged);
+        canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -180, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+        await wait(450);
+        result.zoom = Math.abs(distance(orbit.getStats().camera) - zoomBefore) > 0.08;
+        $('.wv-3d-reset').click();
+        await wait(950);
+        result.reset = orbit.getStats().camera.every((v, i) => Math.abs(v - [0, 4.6, 11.8][i]) < 0.06);
+        if (playing) {
+          const leftSeekRect = $('#waveSeek').getBoundingClientRect();
+          const panelRect = $('.wv-copy').getBoundingClientRect();
+          result.leftSeekVisible = leftSeekRect.top >= panelRect.top && leftSeekRect.bottom <= panelRect.bottom;
+          const leftSeekX = leftSeekRect.left + leftSeekRect.width * 0.6;
+          const leftSeekY = leftSeekRect.top + leftSeekRect.height / 2;
+          await mouse(leftSeekX, leftSeekY);
+          await mouse(leftSeekX, leftSeekY, 'mousePressed');
+          await mouse(leftSeekX, leftSeekY, 'mouseReleased');
+          await wait(300);
+          result.leftSeek = Math.abs(Player.audio.currentTime - Player.audio.duration * 0.6) < 1.5;
+          const ring = $('#waveRingSeek');
+          ring.focus({ preventScroll: true });
+          ring.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+          await wait(150);
+          ring.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+          await wait(300);
+          result.keyboard = Math.abs(Player.audio.currentTime - 5) < 1.2;
+          const ringPoint = orbit.getRingTarget(0.43);
+          const px = ringPoint.x;
+          const py = ringPoint.y;
+          await mouse(px, py);
+          await mouse(px, py, 'mousePressed');
+          await mouse(px, py, 'mouseReleased');
+          await wait(350);
+          result.ringSeek = Math.abs(Player.audio.currentTime - Player.audio.duration * 0.43) < 2;
+          const wasPlaying = Player.playing;
+          $('#waveOrb').click();
+          await wait(350);
+          result.leftToggle = Player.playing !== wasPlaying;
+          $('#waveOrb').click();
+          await wait(350);
+          const previousVolume = Player.volume;
+          Player.setVolume(0.4);
+          await wait(80);
+          $('#waveVol').dispatchEvent(new WheelEvent('wheel', { deltaY: -1, bubbles: true, cancelable: true }));
+          await wait(100);
+          result.volumeControl = Math.abs(Player.volume - 0.45) < 0.02 && $('#waveVolVal').textContent === '45%';
+          $('#waveVolBtn').click();
+          await wait(100);
+          result.muteControl = Player.muted && $('#waveVolVal').textContent === '0%';
+          $('#waveVolBtn').click();
+          Player.setVolume(previousVolume);
+        }
+        const rockTarget = orbit.getWorldTargets().find((w) => w.id === 'rock' && w.visible);
+        if (rockTarget) {
+          await mouse(rockTarget.x, rockTarget.y);
+          await mouse(rockTarget.x, rockTarget.y, 'mousePressed');
+          await mouse(rockTarget.x, rockTarget.y, 'mouseReleased');
+          result.worldClick = await until(() => App.settings.wave?.world === 'rock' && Player.source?.title?.includes('Рок-гигант'), 5000);
+          result.worldOptions = App.settings.wave?.mood === 'energetic' && App.settings.wave?.genres?.includes('rock');
+          canvas.dispatchEvent(new KeyboardEvent('keydown', { key: '0', bubbles: true, cancelable: true }));
+          result.worldKeyboard = await until(() => App.settings.wave?.world === 'any', 5000);
+          result.worldReset = App.settings.wave?.mood === 'any' && App.settings.wave?.lang === 'any' && App.settings.wave?.pop === 'any' && App.settings.wave?.genres?.length === 0;
+        } else {
+          result.worldClick = result.worldOptions = result.worldKeyboard = result.worldReset = false;
+        }
+        await until(() => Player.playing, 8000);
+        const perfStart = orbit.getStats();
+        const perfAt = performance.now();
+        await wait(4500);
+        const perfEnd = orbit.getStats();
+        result.fps = +((perfEnd.frames - perfStart.frames) * 1000 / (performance.now() - perfAt)).toFixed(1);
+        result.renderMs = +perfEnd.renderMs.toFixed(2);
+        result.drawCalls = perfEnd.calls;
+        result.triangles = perfEnd.triangles;
+        result.quality = perfEnd.quality;
+        result.pixelRatio = perfEnd.pixelRatio;
+        result.pixels = perfEnd.pixels;
+        result.scissor = perfEnd.scissor;
+        result.shader = $('.wv-hero').dataset.shader || 'pbr';
+        orbit.setHidden(true);
+        const hiddenFrames = orbit.getStats().frames;
+        await wait(400);
+        result.hiddenStop = orbit.getStats().frames === hiddenFrames;
+        orbit.setHidden(false);
+        await wait(250);
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await wait(400);
+        result.normalRestored = !document.body.classList.contains('wave-focus') && !orbit.getStats().active && $('#waveOrb').parentElement.classList.contains('wv-portal') && $('#waveCosmos').dataset.scene !== 'orbit3d';
+        navigate('home');
+        await wait(650);
+        result.navigationDispose = App.route.view === 'home' && orbit.getStats().destroyed && !orbit.getStats().active;
+        navigate('wave');
+        await until(() => $('#waveFocusBtn'), 6000);
+        result.reenter = await enter();
+        await until(() => $('.wv-3d-loader.hidden'), 5000);
+        result.singleRenderer = $$('.wv-3d-canvas').length === 1;
+      }
+      console.warn(`SELFTEST orbit3d: ${JSON.stringify(result)}`);
+    } else if (extra === 'orbit3dfallback') {
+      // Отказ WebGL не должен оставлять экран без рабочей орбиты и перемотки.
+      AudioFX.setVolume(0);
+      Player._applyVolume = () => AudioFX.setVolume(0);
+      if (Player.source?.kind !== 'wave' || !Player.playing) $('#waveOrb').click();
+      for (let i = 0; i < 72 && (!Player.current || !isFinite(Player.audio.duration) || Player.audio.paused); i++) await wait(250);
+      const nativeGetContext = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function (kind, ...args) {
+        if (/^(?:webgl2?|experimental-webgl)$/.test(kind)) return null;
+        return nativeGetContext.call(this, kind, ...args);
+      };
+      const r = $('#waveFocusBtn').getBoundingClientRect();
+      const x = r.left + r.width / 2;
+      const y = r.top + r.height / 2;
+      await window.zvuk.debug.mouse(x, y);
+      await window.zvuk.debug.mouse(x, y, 'mousePressed');
+      await window.zvuk.debug.mouse(x, y, 'mouseReleased');
+      let fallback = false;
+      for (let i = 0; i < 60; i++) {
+        if ($('.wv-hero')?.dataset.orbitFallback) { fallback = true; break; }
+        await wait(100);
+      }
+      const hero = $('.wv-hero');
+      const ring = $('#waveRingSeek');
+      let ringUsable = false;
+      for (let i = 0; i < 60; i++) {
+        if (Boolean(ring?._ringGeometry?.duration) && getComputedStyle(ring).pointerEvents === 'auto') { ringUsable = true; break; }
+        await wait(100);
+      }
+      const result = {
+        fallback,
+        playing: Player.source?.kind === 'wave' && Player.playing && !Player.audio.paused,
+        playRestored: $('#waveOrb').parentElement.classList.contains('wv-portal'),
+        transportHidden: getComputedStyle($('.wv-focus-transport')).display === 'none',
+        ringUsable,
+        canvasRestored: $('#waveCosmos').dataset.scene === 'solar' && Boolean($('#waveCosmos')._cosmos),
+        stageRemoved: !$('.wv-3d-stage'),
+      };
+      HTMLCanvasElement.prototype.getContext = nativeGetContext;
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await wait(400);
+      result.exitRestored = !document.body.classList.contains('wave-focus') && !hero.dataset.orbitFallback;
+      console.warn(`SELFTEST orbit3dfallback: ${JSON.stringify(result)}`);
     } else if (extra === 'wavefocusfx') {
       // Планеты в полном экране с реально играющим превью: FPS и скачки угла.
       AudioFX.setVolume(0);
@@ -3170,6 +4630,18 @@
       const rt = recentTop.getBoundingClientRect();
       const right = $('.tb-right').getBoundingClientRect();
       console.warn(`SELFTEST recent: shown=${shownBefore}/6 fit=${fitBefore} picked=${picked} first=${App.recentSearches()[0]} visible=${!recentTop.classList.contains('hidden')} keyboard=${keyboard} noOverlap=${rt.right <= right.left + 1}`);
+    } else if (extra === 'waveconsole') {
+      const panel = $('.wv-console');
+      panel.scrollIntoView({ block: 'center' });
+      await wait(600);
+      const selectors = ['.wv-console', '.mood', '.mood-icon', '.wv-tune-block', '.wv-genres', '.opt-pill', '.opt-icon', '.wv-genres .chip'];
+      const radii = Object.fromEntries(selectors.map((selector) => {
+        const el = $(selector);
+        return [selector, el ? getComputedStyle(el).borderRadius : 'missing'];
+      }));
+      const rounded = Object.values(radii).every((value) => parseFloat(value) >= 10 && !value.trim().includes(' '));
+      const overflow = document.documentElement.scrollWidth > innerWidth + 1;
+      console.warn(`SELFTEST waveconsole: ${JSON.stringify({ radii, rounded, overflow, pass: rounded && !overflow })}`);
     } else if (extra === 'wavenarrow') {
       // Узкое окно: декоративная сцена уменьшается, лента запросов полностью уступает место поиску.
       await window.__TAURI__.core.invoke('debug_resize', { width: 1050, height: 740 });
@@ -3188,12 +4660,25 @@
       const st = [...$$('.set-title')].find((x) => x.textContent.includes('Полоса времени'));
       if (st) st.scrollIntoView({ block: 'start' });
       await silentPlay(0);
-    } else if (extra === 'waveplay') {
+    } else if (extra === 'waveplay' || extra === 'waveplaywide') {
+      if (extra === 'waveplaywide') {
+        await window.__TAURI__.core.invoke('debug_resize', { width: 1920, height: 1000 });
+        await wait(600);
+      }
       startMyWave();
       AudioFX.setVolume(0);
       Player._applyVolume = () => AudioFX.setVolume(0);
       await wait(6000);
+      const now = $('#wvNowSlot .wv-now');
+      const copy = $('.wv-copy');
+      const title = now?.querySelector('.nt b');
+      const like = now?.querySelector('.like-btn');
+      const nowRect = now?.getBoundingClientRect();
+      const copyRect = copy?.getBoundingClientRect();
+      const gap = title && like ? Math.round(like.getBoundingClientRect().left - title.getBoundingClientRect().right) : -1;
+      const compact = Boolean(nowRect && copyRect && nowRect.width <= Math.min(copyRect.width, 540) + 1 && gap >= 0 && gap < 360 && nowRect.right <= copyRect.right + 1);
       console.warn(`SELFTEST wave: source=${Player.source?.kind} playing=${Player.playing} track=${Player.current?.id} level=${Viz.level.toFixed(3)}`);
+      console.warn('SELFTEST wavetrack: ' + JSON.stringify({ width: Math.round(nowRect?.width || 0), copyWidth: Math.round(copyRect?.width || 0), gap, compact, pass: Player.source?.kind === 'wave' && compact }));
     } else if (extra === 'collapse') {
       toggleSection('lib');
       toggleSection('pl');
@@ -3218,12 +4703,199 @@
       item && item.click();
       await wait(1800);
       console.warn(`SELFTEST npmenu: route=${App.route.view}:${App.route.params.id} npOpen=${NP.isOpen}`);
+    } else if (extra === 'artistcard') {
+      let card = null;
+      for (let i = 0; i < 40 && !card; i++) { card = $('.card.round'); if (!card) await wait(200); }
+      if (card) {
+        const rect = card.getBoundingClientRect();
+        await window.zvuk.debug.mouse(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      }
+      await wait(350);
+      const cover = card?.querySelector('.cover')?.getBoundingClientRect();
+      const orb = card?.querySelector('.play-orb')?.getBoundingClientRect();
+      let inside = false;
+      if (cover && orb) {
+        const cx = cover.left + cover.width / 2;
+        const cy = cover.top + cover.height / 2;
+        inside = [[orb.left, orb.top], [orb.right, orb.top], [orb.left, orb.bottom], [orb.right, orb.bottom]].every(([x, y]) => Math.hypot(x - cx, y - cy) <= cover.width / 2 + 1);
+      }
+      console.warn(`SELFTEST artistcard: ${JSON.stringify({ found: Boolean(card), visible: orb?.width > 0, inside, pass: Boolean(card && orb?.width && inside) })}`);
     } else if (extra === 'suggest') {
       const inp = $('#searchInput');
       inp.focus();
       inp.value = 'atomic hear';
       inp.dispatchEvent(new Event('input', { bubbles: true }));
       await wait(2500);
+    } else if (extra === 'novatest') {
+      await silentPlay(0);
+      openPanel('nova');
+      await wait(250);
+      const result = { reaction: false, disabled: false, transport: false, lyricsAction: false, gameAction: false, sync: false, beat: false, reduced: false, restored: false };
+      if (!Nova._stateForTest().watching) $('[data-nova-watch]')?.click();
+      Nova.setStyle('lunar');
+      if (!Player.playing) Player.play();
+      await wait(100);
+      const detail = (text, index = 0) => ({ trackId: Player.current.id, index, line: { t: 8 + index * 3, text }, next: { t: 20, text: 'Next line' } });
+      document.dispatchEvent(new CustomEvent('zg:lyrics-line', { detail: detail('I love you under the stars') }));
+      result.reaction = Nova._stateForTest().reaction?.id === 'love' && $('[data-nv="message"]')?.textContent.includes('love');
+      $('[data-nova-watch]')?.click();
+      const disabledMessage = Nova._stateForTest().message;
+      await wait(500);
+      document.dispatchEvent(new CustomEvent('zg:lyrics-line', { detail: detail('Rain on the window', 1) }));
+      const wrap = $('.nv-collapse-wrap');
+      result.disabled = !Nova._stateForTest().watching && Nova._stateForTest().collapsed && Nova._stateForTest().message === disabledMessage && Nova._stateForTest().line?.line?.text === 'Rain on the window' && $('.nova-panel').classList.contains('is-collapsed') && $('[data-nova-watch]').getAttribute('aria-expanded') === 'false' && parseFloat(getComputedStyle(wrap).height) < 2;
+      $('[data-nova-watch]')?.click();
+      await wait(500);
+      result.restoredComments = Nova._stateForTest().watching && !Nova._stateForTest().collapsed && $('[data-nova-watch]').getAttribute('aria-expanded') === 'true' && parseFloat(getComputedStyle(wrap).height) > 100;
+      const wasPlaying = Player.playing;
+      $('[data-nova-action="toggle"]')?.click();
+      await wait(150);
+      result.transport = Player.playing !== wasPlaying;
+      $('[data-nova-action="toggle"]')?.click();
+      $('.nv-quick-actions [data-act="panel"][data-panel="lyrics"]')?.click();
+      result.lyricsAction = App.panel === 'lyrics';
+      if (App.panel !== 'nova') openPanel('nova');
+      $('.nv-quick-actions [data-view="pulse"]')?.click();
+      await wait(350);
+      result.gameAction = App.route?.view === 'pulse';
+      navigate('home');
+      if (App.panel !== 'nova') openPanel('nova');
+      await wait(650);
+      document.dispatchEvent(new CustomEvent('zg:clip', { detail: { trackId: Player.current.id, sync: { state: 'run', phase: 'measure', shot: 2, total: 5, message: 'Сравниваю фрагменты' } } }));
+      result.sync = Nova._stateForTest().sync?.state === 'run' && document.body.classList.contains('nova-syncing') && !$('.nv-sync-card')?.classList.contains('hidden');
+      document.dispatchEvent(new CustomEvent('zg:clip', { detail: { trackId: Player.current.id, sync: { state: 'done', phase: 'done', offset: .125, confidence: .9 } } }));
+      window.dispatchEvent(new Event('zg:beat'));
+      result.beat = document.body.classList.contains('nova-beat');
+      document.body.classList.remove('nova-word-react');
+      const motionElement = $('.nv-portrait .nova-motion');
+      const expectedPoses = { idle: 'thoughtful', listening: 'excitement', delighted: 'joy', help: 'support', pause: 'longing', wave: 'tenderness' };
+      result.staticPoses = true;
+      for (const [pose, emotion] of Object.entries(expectedPoses)) {
+        motionElement.dataset.localPose = pose;
+        Nova.renderPose();
+        const image = motionElement.querySelector(':scope > img');
+        for (let i = 0; i < 40 && !(image?.complete && image.naturalWidth > 0); i++) await wait(50);
+        result.staticPoses = result.staticPoses && motionElement.dataset.rigState === 'static' && image?.getAttribute('src') === `assets/nova/emotions/${emotion}.webp` && image.complete && image.naturalWidth > 0 && !motionElement._novaRig && !motionElement._novaVideo.getAttribute('src');
+      }
+      delete motionElement.dataset.localPose;
+      Nova.renderPose();
+      document.body.classList.add('reduce-motion');
+      document.dispatchEvent(new CustomEvent('zg:lyrics-line', { detail: detail('Fire and flame', 2) }));
+      await wait(250);
+      const novaMotions = [...$$('.nv-portrait .nova-motion, .nova-player-btn .nova-motion')];
+      const novaVideos = novaMotions.map((el) => el._novaVideo).filter(Boolean);
+      result.reduced = !document.body.classList.contains('nova-word-react') && getComputedStyle($('.nv-portrait')).animationName === 'none' && novaMotions.length >= 2 && novaMotions.every((el) => el.dataset.staticEmotion === '1' && !el._novaRig) && novaVideos.every((video) => video.paused && video.muted && !video.getAttribute('src'));
+      document.body.classList.remove('reduce-motion');
+      await wait(450);
+      result.restored = Nova._stateForTest().watching && novaMotions.every((el) => el.dataset.rigState === 'static' && el.querySelector(':scope > img')?.naturalWidth > 0);
+      navigate('home');
+      await wait(450);
+      if (App.panel !== 'nova') openPanel('nova');
+      await wait(650);
+      const chips = $('.home-wave .chips')?.getBoundingClientRect();
+      const copy = $('.home-wave .wave-text')?.getBoundingClientRect();
+      result.layout = App.panel === 'nova' && $('#sidePanel').classList.contains('open') && chips && copy && chips.bottom <= copy.bottom + 1 && !document.querySelector('.home-nova, .nova-context, .wv-nova-companion, #novaLive');
+      const orbitAligned = (stage, line, button, hero) => {
+        if (!stage || !line || !button || !hero) return false;
+        const s = stage.getBoundingClientRect(), l = line.getBoundingClientRect(), b = button.getBoundingClientRect(), h = hero.getBoundingClientRect();
+        return s.width >= h.width * .35 && s.left >= h.left - 1 && s.right <= h.right + 1 && Math.abs((l.left + l.right - b.left - b.right) / 2) < 3 && Math.abs((l.top + l.bottom - b.top - b.bottom) / 2) < 3;
+      };
+      result.homeOrbit = orbitAligned($('.home-orbit-stage'), $('.home-orbit-line.l1'), $('.home-wave-play'), $('.home-wave'));
+      closePanel(); await wait(600);
+      result.closedPanel = App.panel !== 'nova' && motionElement._novaVideo.paused;
+      if (App.panel !== 'nova') openPanel('nova'); await wait(650);
+      navigate('wave'); await wait(550);
+      if (App.panel !== 'nova') openPanel('nova');
+      await wait(650);
+      result.waveOrbit = orbitAligned($('.orbit-observatory .wv-portal'), $('.orbit-observatory .wv-orbit-line.l1'), $('.orbit-observatory .wv-portal .wv-play'), $('.orbit-observatory'));
+      const liveMotions = [...$$('.nova-motion')];
+      result.resources = liveMotions.length >= 2 && liveMotions.every((el) => !el._novaRig && el.dataset.rigState === 'static' && !el._novaVideo.getAttribute('src'));
+      result.pass = Object.values(result).every((value) => typeof value !== 'boolean' || value);
+      console.warn('SELFTEST novatest: ' + JSON.stringify(result));
+    } else if (extra === 'novaframes') {
+      Player.pause();
+      if (App.panel !== 'nova') openPanel('nova');
+      const motion = $('.nv-portrait .nova-motion');
+      for (let i = 0; i < 80 && !motion?._novaRig; i++) await wait(100);
+      const rig = motion?._novaRig;
+      const source = motion?.querySelector('.nova-rig-canvas');
+      if (!rig || !source) throw new Error('Интерактивный риг Новы не загрузился');
+      const sheet = document.createElement('div');
+      sheet.style.cssText = 'position:fixed;inset:0;z-index:10000;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-content:center;gap:12px;padding:18px;background:#070b16;color:#dce9ff;font:12px sans-serif;overflow:hidden';
+      document.body.append(sheet);
+      const report = [];
+      const grab = () => {
+        const canvas = document.createElement('canvas'); canvas.width = 360; canvas.height = 290;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        const scale = Math.min(canvas.width / source.width, canvas.height / source.height);
+        const w = source.width * scale, h = source.height * scale;
+        context.drawImage(source, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
+        return { canvas, pixels: context.getImageData(0, 0, canvas.width, canvas.height).data };
+      };
+      for (const pose of ['idle', 'listening', 'delighted', 'help', 'pause', 'wave']) {
+        motion.dataset.localPose = pose;
+        Nova.renderPose();
+        await wait(950);
+        const before = rig.getStats(), first = grab();
+        await wait(280);
+        const after = rig.getStats(), second = grab();
+        let total = 0, count = 0;
+        for (let i = 0; i < first.pixels.length; i += 16) {
+          total += Math.abs(first.pixels[i] - second.pixels[i]) + Math.abs(first.pixels[i + 1] - second.pixels[i + 1]) + Math.abs(first.pixels[i + 2] - second.pixels[i + 2]);
+          count += 3;
+        }
+        const meanPixelDelta = +(total / count).toFixed(3);
+        const signatureDelta = +Math.abs(after.signature - before.signature).toFixed(4);
+        const card = document.createElement('div');
+        card.style.cssText = 'padding:9px;border:1px solid #293b58;border-radius:12px;background:#10192b;text-align:center;overflow:hidden';
+        second.canvas.style.cssText = 'display:block;width:100%;height:290px;object-fit:contain;background:#050a16;border-radius:7px';
+        const label = document.createElement('div');
+        label.textContent = `${pose} · сетка ${after.vertices} · Δ ${signatureDelta}`;
+        label.style.paddingTop = '8px';
+        card.append(second.canvas, label); sheet.append(card);
+        report.push({ pose, frames: after.frames, vertices: after.vertices, arm: after.arm, drawMs: after.drawMs, signatureDelta, meanPixelDelta, pass: after.frames > before.frames && signatureDelta > .001 && meanPixelDelta > .005 && (!['wave', 'help'].includes(pose) || after.arm < -.3) });
+      }
+      Nova.renderPose();
+      console.warn('SELFTEST novaframes: ' + JSON.stringify({ pass: report.every((item) => item.pass), poses: report }));
+    } else if (extra === 'homepanel') {
+      await silentPlay(0);
+      if (App.panel !== 'nova') openPanel('nova');
+      await wait(800);
+    } else if (extra === 'nova' || extra === 'novacollapsed') {
+      await silentPlay(0);
+      openPanel('nova');
+      let line = null;
+      // В гостевом режиме доступны 30-секундные превью: ищем реальный трек с ранней строкой.
+      for (let attempt = 0; attempt < 5 && !line; attempt++) {
+        const lyricsWait = Date.now() + 16000;
+        while (Date.now() < lyricsWait && (App.lyrics.trackId !== Player.current?.id || App.lyrics.loading || App.lyrics.searching)) await wait(200);
+        const lines = App.lyrics.data?.synced ? App.lyrics.data.lines : [];
+        const duration = Player.audio.duration || 30;
+        line = lines.find((l) => l.text && l.t >= 0 && l.t < duration - 2) || null;
+        if (!line && attempt < 4) {
+          Player.next();
+          await wait(3000);
+        }
+      }
+      openPanel('lyrics');
+      await wait(300);
+      openPanel('queue');
+      await wait(300);
+      openPanel('nova');
+      if (line) Player.seek(line.t + 0.35);
+      await wait(1400);
+      if (extra === 'novacollapsed') {
+        if (Nova._stateForTest().watching) $('[data-nova-watch]')?.click();
+        await wait(650);
+        const persistent = ['.nv-quick-actions', '.nv-track-card', '.nv-lyric-card'].every((selector) => {
+          const el = $(selector);
+          return el && !el.closest('.nv-collapse-wrap') && el.getBoundingClientRect().height > 0 && getComputedStyle(el).display !== 'none';
+        });
+        const pass = Nova._stateForTest().collapsed && !Nova._stateForTest().watching && persistent && parseFloat(getComputedStyle($('.nv-collapse-wrap')).height) < 2;
+        console.warn('SELFTEST novacollapsed: ' + JSON.stringify({ persistent, pass }));
+      }
+      const ns = Nova._stateForTest();
+      console.warn(`SELFTEST nova: panel=${App.panel} track=${ns.trackKey} lyricIndex=${ns.line?.index} activeLine=${ns.line?.index >= 0} synced=${Boolean(App.lyrics.data?.synced)} watching=${ns.watching} state=${JSON.stringify(ns)}`);
     } else if (extra === 'queue' || extra === 'lyrics') {
       const l = [...UI.Lists.values()].find((x) => x.tracks.length);
       if (l) Player.cue(l.tracks, 0, 0, l.source);

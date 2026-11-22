@@ -5,20 +5,41 @@
   const flow = document.getElementById('npFlow');
   const items = new Map(); // индекс в очереди → элемент
   const RANGE = 3;
-  // Положение карточек по удалённости от центра (доли размера обложки)
+  // Классическая Cover Flow остаётся отдельной геометрией.
   const X = [0, 0.98, 1.66, 2.2, 2.6];
   const SC = [1, 0.7, 0.54, 0.44, 0.38];
   const RY = [0, 40, 50, 56, 60];
   const Z = [0, -140, -260, -360, -420];
   const OP = [1, 1, 0.75, 0.35, 0];
+  // Орбитальная очередь: крупное ядро и лёгкие спутники на зеркальных дугах.
+  const OX = [0, 1.04, 1.58, 1.98, 2.25];
+  const OY = [0, 0.19, -0.1, 0.14, -0.18];
+  const OSC = [1, 0.34, 0.25, 0.19, 0.14];
+  const ORZ = [0, -8, 7, -5, 4];
+  const OZ = [0, -30, -90, -160, -220];
+  const OOP = [1, 1, 0.82, 0.42, 0];
 
   let scene = null;
 
-  function base(off, size) {
+  function base(off, size, el) {
     const a = Math.min(4, Math.abs(off));
     const s = Math.sign(off);
+    if (!document.body.classList.contains('design-classic')) {
+      const scale = OSC[a];
+      const x = (OX[a] * s * size).toFixed(1);
+      const y = (OY[a] * size).toFixed(1);
+      // Наклоняем только обложку: подпись остаётся ровной и строго по её центру.
+      el.style.setProperty('--satellite-tilt', `${ORZ[a] * s}deg`);
+      el.style.setProperty('--satellite-scale', scale);
+      return {
+        t: `translate3d(${x}px, ${y}px, ${OZ[a]}px) scale(${scale})`,
+        o: OOP[a], ry: 0, labelScale: 1 / scale,
+      };
+    }
     const ry = RY[a] * s;
-    return { t: `translateX(${(X[a] * s * size).toFixed(1)}px) translateZ(${Z[a]}px) rotateY(${ry}deg) scale(${SC[a]})`, o: OP[a], ry };
+    el.style.removeProperty('--satellite-tilt');
+    el.style.removeProperty('--satellite-scale');
+    return { t: `translateX(${(X[a] * s * size).toFixed(1)}px) translateZ(${Z[a]}px) rotateY(${ry}deg) scale(${SC[a]})`, o: OP[a], ry, labelScale: 1 };
   }
 
   // ---------- Наведение: двигается только содержимое, «рамка» карточки стоит на месте ----------
@@ -29,10 +50,11 @@
       return;
     }
     if (el.classList.contains('side')) {
-      // разворачиваем к зрителю и выдвигаем вперёд
-      card.style.setProperty('--hry', (-parseFloat(el.dataset.bry || 0) * 0.78).toFixed(1) + 'deg');
-      card.style.setProperty('--hz', '90px');
-      card.style.setProperty('--hs', '1.06');
+      const orbital = !document.body.classList.contains('design-classic');
+      // Спутник лишь слегка приближается: старое разворачивание ломало орбитальный силуэт.
+      card.style.setProperty('--hry', orbital ? '0deg' : (-parseFloat(el.dataset.bry || 0) * 0.78).toFixed(1) + 'deg');
+      card.style.setProperty('--hz', orbital ? '46px' : '90px');
+      card.style.setProperty('--hs', orbital ? '1.12' : '1.06');
     } else {
       card.style.removeProperty('--hry');
       card.style.setProperty('--hz', '20px');
@@ -45,12 +67,11 @@
     el.className = 'cf-item';
     el.dataset.qi = i;
     el.dataset.tid = t.id;
-    el.innerHTML = `<div class="cf-card"><div class="cf-tilt">
+    el.innerHTML = `<div class="cf-card"><div class="cf-tilt"><div class="cf-art">
         <img src="${esc(cover(t, 600))}" alt="" draggable="false">
         <div class="cf-dim"></div><div class="cf-shine"></div>
-        <div class="cf-label"><span class="tag"></span><span class="ttl">${esc(t.title)}</span><small>${esc(artistsText(t.artists))}</small><span class="go">${icon('play')}</span></div>
-        <div class="cf-play"><span class="pp-play">${icon('play')}</span><span class="pp-pause">${icon('pause')}</span></div>
-      </div></div>`;
+        </div><div class="cf-play"><span class="pp-play">${icon('play')}</span><span class="pp-pause">${icon('pause')}</span></div>
+      </div><div class="cf-label"><span class="tag"></span><span class="ttl">${esc(t.title)}</span><small>${esc(artistsText(t.artists))}</small><span class="go">${icon('play')}</span></div></div>`;
     const tilt = el.firstChild.firstChild;
     let raf = 0;
     let last = null;
@@ -93,9 +114,10 @@
   function place(el, offOverride) {
     const size = el.offsetWidth || flow.clientHeight;
     const off = offOverride != null ? offOverride : +el.dataset.qi - Player.index;
-    const { t, o, ry } = base(off, size);
+    const { t, o, ry, labelScale } = base(off, size, el);
     el.style.transform = t;
     el.style.opacity = o;
+    el.style.setProperty('--label-scale', labelScale.toFixed(3));
     el.dataset.bry = ry;
     el.classList.toggle('cur', off === 0);
     el.classList.toggle('side', off !== 0);
@@ -160,12 +182,13 @@
         <button class="chip" data-ne="full" title="Открыть полный эквалайзер">Подробнее${icon('chevronRight')}</button></div>`;
     E.bind(eqBox.querySelector('.ne-bands'), eqSync);
     const presets = eqBox.querySelector('.ne-presets');
-    // колёсико прокручивает ряд пресетов вбок
+    // Колесо и тачпад прокручивают и горизонтальный ряд, и сетку пресетов.
     presets.addEventListener('wheel', (e) => {
-      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
       e.preventDefault();
-      presets.scrollLeft += e.deltaY;
-    });
+      const vertical = getComputedStyle(presets).overflowY !== 'hidden';
+      if (vertical) presets.scrollTop += e.deltaY;
+      else presets.scrollLeft += e.deltaY + e.deltaX;
+    }, { passive: false });
     eqBox.addEventListener('click', (e) => {
       const p = e.target.closest('[data-eqp]');
       if (p) {

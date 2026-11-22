@@ -1,0 +1,15 @@
+﻿{
+  "source": "Tripo AI",
+  "task_id": "9cc53fb1-af2e-41af-9783-60c0a822d290",
+  "model": "P1-20260311",
+  "format": "GLB",
+  "face_limit": 18000,
+  "actual_triangles": 17305,
+  "pbr": true,
+  "texture_quality": "fast",
+  "texture_version": "v3.5-20260815",
+  "delight": true,
+  "credits_consumed": 40,
+  "integration": "Local GLB, normalized and lit by the Three.js orbit scene"
+}
+

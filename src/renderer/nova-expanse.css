@@ -1,0 +1,274 @@
+/* Zvuk Nova — цельная орбитальная система. Структурные исправления действуют во всех темах. */
+.sidebar-scroll {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(172,232,208,.22) transparent;
+}
+.sidebar-scroll > * { position: relative; z-index: 2; }
+.sidebar-scroll > .nav-indicator {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 0;
+  height: 40px;
+  border-radius: 14px;
+  z-index: 1;
+  background: rgba(255,255,255,.08);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.07);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform .42s var(--ease), opacity .2s ease;
+}
+.sidebar-scroll .side-playlists { flex: none; min-height: 12px; overflow: visible; }
+.sidebar.sec-main-off [data-sec-body="main"],
+.sidebar.sec-pl-off [data-sec-body="pl"] { display: none; }
+.sidebar.sec-main-off .side-caption .sec-toggle .i { transform: rotate(-90deg); }
+.side-caption .sec-toggle { width: 24px; height: 24px; margin-right: -5px; }
+.side-caption .sec-toggle .i { width: 14px; height: 14px; transition: transform .35s var(--ease); }
+.nav-pulse .nav-new { margin-left: auto; color: var(--nova-mint, #ace8d0); font: 700 7px var(--font); letter-spacing: .8px; }
+.player { isolation: isolate; background-color: #11151c; }
+.pl-left, .pl-center, .pl-right { min-width: 0; }
+.pl-title .lnk, .pl-artist .lnk { max-width: 100%; overflow-wrap: normal; }
+body.compact-sidebar .sidebar-scroll > .nav-indicator { left: 8px; right: 8px; }
+body.compact-sidebar .nav-pulse .nav-new { display: none; }
+body.theme-orbit .sidebar { padding-top: 8px; }
+body.theme-orbit .sidebar-scroll { padding-right: 15px; }
+body.theme-orbit .sidebar-scroll > .nav-indicator { left: 0; right: 15px; height: 42px; border-radius: 12px; background: rgba(172,232,208,.09); box-shadow: inset 0 0 0 1px rgba(172,232,208,.08); }
+body.theme-orbit .sidebar-scroll > .nav-indicator::after { content: ''; position: absolute; top: 50%; right: 11px; width: 4px; height: 4px; margin-top: -2px; border-radius: 50%; background: var(--nova-mint); }
+body.theme-orbit .sidebar-scroll .side-caption { height: 29px; margin: 0 12px 8px; }
+body.theme-orbit .sidebar-scroll .nav-section { margin-top: 18px; }
+body.theme-orbit.compact-sidebar .sidebar-scroll { padding-right: 0; }
+body.theme-orbit.compact-sidebar .sidebar-scroll > .nav-indicator { left: 8px; right: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-scroll > .nav-indicator { transition: opacity .15s ease; }
+}
+
+/* Главная: компактная обсерватория вместо рекламного баннера. */
+body.theme-orbit .home-wave {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0,1.08fr) minmax(280px,.92fr);
+  align-items: center;
+  height: 410px;
+  min-height: 410px;
+  padding: 38px 40px 78px;
+  overflow: hidden;
+  border-radius: 26px;
+  background:
+    radial-gradient(ellipse at 76% 35%, rgba(188,178,244,.12), transparent 45%),
+    radial-gradient(ellipse at 5% 100%, rgba(172,232,208,.07), transparent 48%),
+    #12161d;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+}
+body.theme-orbit .home-wave::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(105deg, rgba(18,22,29,.96) 0%, rgba(18,22,29,.76) 42%, transparent 68%);
+  z-index: 1;
+}
+body.theme-orbit .home-wave::after { display: none; }
+body.theme-orbit .home-wave-cosmos { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; opacity: .95; }
+.home-orbit-grid { position: absolute; inset: 0; opacity: .16; pointer-events: none; background-image: linear-gradient(rgba(255,255,255,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.06) 1px,transparent 1px); background-size: 72px 72px; mask-image: linear-gradient(90deg,transparent 38%,#000); }
+body.theme-orbit .home-wave .wave-text { position: relative; z-index: 3; max-width: none; align-self: center; }
+body.theme-orbit .home-wave-kicker { display: flex; align-items: center; gap: 8px; margin-bottom: 19px; color: var(--nova-mint); font-size: 9px; letter-spacing: 1.1px; }
+.home-live-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--nova-mint); box-shadow: 0 0 0 5px rgba(172,232,208,.06); animation: novaSignal 2.8s ease-in-out infinite; }
+body.theme-orbit .home-wave .wave-text h2 { margin: 0 0 17px; font-size: clamp(38px,3.65vw,54px); line-height: 1.02; font-weight: 550; letter-spacing: -2.2px; }
+body.theme-orbit .home-wave .wave-text h2 em { color: var(--nova-lilac); font-style: normal; font-weight: 450; }
+body.theme-orbit .home-wave .wave-text p { max-width: 510px; margin: 0 0 24px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.theme-orbit .home-wave .chips { display: flex; flex-wrap: wrap; gap: 7px; max-width: 570px; }
+body.theme-orbit .home-wave .chip { backdrop-filter: none; }
+.home-orbit-stage { position: absolute; inset: 0 0 58px 48%; z-index: 2; pointer-events: none; }
+.home-orbit-index { position: absolute; top: 24px; right: 30px; color: var(--text-3); font-size: 8px; letter-spacing: 1.3px; }
+body.theme-orbit .home-wave-play { top: 43%; right: 18%; width: 122px; height: 122px; pointer-events: auto; transform: translate(50%,-50%); }
+body.theme-orbit .home-wave-play:hover { transform: translate(50%,-50%) scale(1.04); }
+body.theme-orbit .home-wave-play:active { transform: translate(50%,-50%) scale(.96); }
+.home-play-label { position: absolute; top: calc(100% + 20px); left: 50%; transform: translateX(-50%); color: #e9f8f1; font-size: 8px; font-weight: 650; letter-spacing: 1.4px; white-space: nowrap; }
+.home-orbit-caption { position: absolute; right: 25px; bottom: 12px; color: var(--text-3); font-size: 7px; letter-spacing: .8px; }
+body.theme-orbit .home-wave-signature { display: none; }
+.home-nova { position: absolute; z-index: 4; left: 40px; right: 40px; bottom: 20px; height: 48px; display: flex; align-items: center; gap: 11px; padding: 0; border-top: 1px solid var(--line); text-align: left; color: var(--text); }
+.home-nova-avatar { width: 42px; height: 50px; align-self: end; overflow: hidden; flex: none; }
+.home-nova-avatar img { width: 62px; max-width: none; height: 62px; object-fit: contain; object-position: top; transform: translate(-9px,-2px); }
+.home-nova > span:nth-child(2) { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.home-nova b { font-size: 11px; font-weight: 550; }
+.home-nova small { color: var(--text-3); font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.home-nova > .i { margin-left: auto; width: 15px; color: var(--text-3); transition: transform .25s ease; }
+.home-nova:hover > .i { transform: translateX(4px); color: var(--nova-mint); }
+
+/* Страница орбиты: тот же визуальный код, но больше пространства сцене. */
+body.theme-orbit .orbit-observatory { height: clamp(540px,68vh,660px); min-height: 540px; padding: 38px; grid-template-columns: minmax(330px,.86fr) minmax(360px,1.14fr); border-radius: 26px; background: #11151c; }
+body.theme-orbit .orbit-observatory::before { content: ''; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg,rgba(17,21,28,.98) 0%,rgba(17,21,28,.86) 38%,transparent 65%); z-index: 1; }
+.wv-coordinates { position: absolute; top: 27px; left: 38px; right: 38px; display: flex; align-items: center; gap: 12px; color: var(--text-3); font-size: 8px; letter-spacing: 1.2px; pointer-events: none; }
+.wv-coordinates i { height: 1px; flex: 1; background: var(--line); }
+body.theme-orbit .orbit-observatory .wv-copy { z-index: 3; padding-top: 22px; }
+body.theme-orbit .orbit-observatory .wv-title { font-size: clamp(48px,4.5vw,70px); line-height: .98; }
+body.theme-orbit .orbit-observatory .wv-title span { color: var(--nova-lilac); }
+body.theme-orbit .orbit-observatory .wv-sub { max-width: 400px; }
+body.theme-orbit .orbit-observatory .wv-mood-note { border-left: 2px solid var(--mood-a); border-top: 0; padding: 2px 0 2px 12px; }
+.wv-nova-companion { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; margin-top: 15px; padding: 10px 0 0; border-top: 1px solid var(--line); color: var(--text); text-align: left; }
+.wv-nova-companion img { width: 42px; height: 42px; object-fit: contain; object-position: top; flex: none; }
+.wv-nova-companion > span { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 3px; }
+.wv-nova-companion b { font-size: 10px; font-weight: 550; }
+.wv-nova-companion small { color: var(--text-3); font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wv-nova-companion > .i { width: 14px; color: var(--text-3); }
+.wv-nova-companion:hover > .i { color: var(--nova-mint); }
+body.wave-focus .wv-coordinates, .wv-hero:fullscreen .wv-coordinates, body.wave-focus .wv-nova-companion, .wv-hero:fullscreen .wv-nova-companion { display: none; }
+body.wave-focus .orbit-observatory::before, .wv-hero:fullscreen.orbit-observatory::before { display: none; }
+
+/* Карточки, исполнители и чарт. */
+body.theme-orbit .card { --card-accent: var(--nova-mint); }
+body.theme-orbit .card.round { padding: 12px 7px 9px; isolation: isolate; }
+body.theme-orbit .card.round::before { content: ''; position: absolute; z-index: -1; inset: 3px 14px 49px; border: 1px solid rgba(188,178,244,.12); border-radius: 50%; transform: rotate(-13deg) scaleY(.88); transition: transform .55s var(--nova-ease),border-color .25s ease; }
+body.theme-orbit .card.round:hover::before { transform: rotate(8deg) scaleY(.88); border-color: rgba(172,232,208,.35); }
+body.theme-orbit .card.round .cover { border-radius: 50%; box-shadow: 0 12px 30px rgba(0,0,0,.28); }
+body.theme-orbit .card.round .ct, body.theme-orbit .card.round .cs { text-align: center; }
+body.theme-orbit .card.round .play-orb { right: 13px; bottom: 13px; }
+body.theme-orbit .artist-hero { isolation: isolate; overflow: hidden; }
+body.theme-orbit .artist-hero::after { content: none; }
+body.theme-orbit .artist-hero .hero-info { position: relative; z-index: 2; }
+body.theme-orbit .top-hero { min-height: 300px; padding: 40px; isolation: isolate; }
+body.theme-orbit .top-hero::after { content: '100'; position: absolute; z-index: -1; right: 30%; top: -50px; color: rgba(255,255,255,.022); font-size: 300px; line-height: 1; font-weight: 800; letter-spacing: -30px; pointer-events: none; }
+body.theme-orbit .top-info h2 { font-size: clamp(48px,5vw,76px); letter-spacing: -3px; font-weight: 500; }
+body.theme-orbit .top-info .kind { color: var(--nova-mint); }
+body.theme-orbit .tp-card { box-shadow: 0 16px 35px rgba(0,0,0,.3); }
+
+@keyframes novaSignal { 0%,100% { opacity: .65; box-shadow: 0 0 0 3px rgba(172,232,208,.04); } 50% { opacity: 1; box-shadow: 0 0 0 7px rgba(172,232,208,.09); } }
+
+@media (max-width: 1200px) {
+  body.theme-orbit .home-wave { grid-template-columns: minmax(0,1.2fr) minmax(240px,.8fr); padding-left: 30px; padding-right: 30px; }
+  body.theme-orbit .home-wave-play { right: 19%; width: 108px; height: 108px; }
+  .home-nova { left: 30px; right: 30px; }
+  body.theme-orbit .orbit-observatory { grid-template-columns: minmax(280px,.9fr) minmax(300px,1.1fr); padding: 30px; }
+  body.theme-orbit .orbit-observatory .wv-title { font-size: 48px; }
+}
+@media (max-width: 900px) {
+  body.theme-orbit .home-wave { height: 390px; min-height: 390px; grid-template-columns: minmax(0,1fr) 220px; padding: 30px 26px 76px; }
+  body.theme-orbit .home-wave .wave-text h2 { font-size: 36px; }
+  body.theme-orbit .home-wave .home-wave-settings { display: none; }
+  .home-nova small { max-width: 260px; }
+  body.theme-orbit .orbit-observatory { height: 510px; min-height: 510px; grid-template-columns: minmax(250px,1fr) minmax(230px,.9fr); padding: 25px; }
+  .wv-nova-companion { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-live-dot { animation: none; }
+  body.theme-orbit .card.round::before { transition: none; }
+}
+
+/* Любимые треки: личное созвездие вместо обычной обложки-плашки. */
+body.theme-orbit .liked-hero { min-height: 320px; gap: 54px; background: radial-gradient(ellipse at 18% 50%,rgba(188,178,244,.08),transparent 42%); }
+.liked-visual { position: relative; width: 240px; height: 240px; flex: none; display: grid; place-items: center; }
+.liked-visual > small { position: absolute; bottom: -2px; color: var(--text-3); font-size: 7px; letter-spacing: 1.4px; }
+.liked-orbits { position: relative; width: 190px; height: 190px; display: grid; place-items: center; }
+.liked-orbits > i { position: absolute; inset: 10px; border: 1px solid rgba(188,178,244,.24); border-radius: 50%; transform: rotate(-22deg) scaleY(.5); }
+.liked-orbits > i:nth-child(2) { inset: 31px; border-color: rgba(172,232,208,.26); transform: rotate(38deg) scaleY(.62); }
+.liked-orbits > i:nth-child(3) { inset: 52px; border-color: rgba(255,255,255,.09); transform: rotate(78deg) scaleY(.74); }
+.liked-orbits > span { position: relative; z-index: 2; display: grid; place-items: center; width: 84px; height: 84px; border-radius: 50%; color: #17231f; background: linear-gradient(145deg,#d8fff0,#ace8d0 55%,#bcb2f4); box-shadow: 0 14px 45px rgba(172,232,208,.14); }
+.liked-orbits > span .i { width: 34px; height: 34px; }
+.liked-orbits > b { position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--nova-mint); box-shadow: 0 0 14px rgba(172,232,208,.45); }
+.liked-orbits > b:nth-of-type(1) { left: 13px; top: 98px; }
+.liked-orbits > b:nth-of-type(2) { right: 24px; top: 55px; width: 5px; height: 5px; background: var(--nova-lilac); }
+.liked-orbits > b:nth-of-type(3) { right: 50px; bottom: 28px; width: 4px; height: 4px; }
+body.theme-orbit .liked-hero .hero-info h1 { font-size: clamp(44px,4.8vw,70px); }
+.liked-intro { margin: 12px 0 18px; color: var(--text-2); font-size: 13px; line-height: 1.65; }
+body.theme-orbit .liked-actions { position: relative; margin: -15px 0 24px; padding-left: 292px; }
+.liked-search { position: relative; display: block; width: min(300px,100%); margin-left: auto; }
+.liked-search > .i { position: absolute; z-index: 2; left: 13px; top: 12px; width: 16px; height: 16px; color: var(--text-3); pointer-events: none; }
+.liked-search .input { height: 40px; padding-left: 39px; border-radius: 12px; }
+body.theme-orbit .view[data-page="liked"] .tracks { padding: 7px; border-radius: 18px; background: rgba(255,255,255,.015); box-shadow: inset 0 0 0 1px rgba(255,255,255,.035); }
+
+@media (max-width: 1050px) {
+  body.theme-orbit .liked-hero { gap: 25px; }
+  .liked-visual { width: 190px; }
+  .liked-orbits { transform: scale(.85); }
+  body.theme-orbit .liked-actions { padding-left: 215px; }
+  .liked-search { width: 230px; }
+}
+
+/* Нова: локальный персонаж с хореографией, реакциями и рабочими действиями. */
+.nova-context { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 62px; margin: 17px 0 4px; padding: 5px 16px 5px 7px; border: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); color: var(--text); text-align: left; background: transparent; }
+.nova-context-avatar { width: 49px; height: 51px; flex: none; overflow: hidden; }
+.nova-context-avatar img { width: 64px; height: 64px; max-width: none; object-fit: contain; object-position: top; transform: translate(-7px,-2px); }
+.nova-context > span:nth-child(2) { display: flex; flex: 1; flex-direction: column; min-width: 0; gap: 4px; }
+.nova-context small { color: var(--nova-mint); font-size: 8px; letter-spacing: .7px; text-transform: uppercase; }
+.nova-context b { overflow: hidden; color: var(--text-2); font-size: 11px; font-weight: 450; white-space: nowrap; text-overflow: ellipsis; }
+.nova-context-open { display: flex; align-items: center; gap: 7px; color: var(--text-3); font-size: 9px; }
+.nova-context-open .i { width: 13px; }
+.nova-context:hover .nova-context-open { color: var(--nova-mint); }
+.nv-live-open { display: flex; align-items: center; gap: 11px; flex: 1; min-width: 0; color: inherit; text-align: left; }
+.nv-live-open > .i { width: 15px; height: 15px; color: var(--text-3); flex: none; }
+.nv-live-play { display: grid; place-items: center; width: 34px; height: 34px; flex: none; border-radius: 11px; color: #15261f; background: var(--nova-mint); }
+.nv-live-play .i { width: 16px; height: 16px; }
+.nova-live { padding-right: 8px; }
+.nv-quick-actions { display: grid; grid-template-columns: repeat(4,1fr); gap: 6px; margin-top: 12px; }
+.nv-quick-actions button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-width: 0; height: 48px; border-radius: 12px; color: var(--text-2); background: rgba(255,255,255,.03); box-shadow: inset 0 0 0 1px var(--line); font-size: 8px; }
+.nv-quick-actions button:first-child { color: #15261f; background: var(--nova-mint); }
+.nv-quick-actions .i { width: 17px; height: 17px; }
+.nv-quick-actions button:hover { color: var(--text); background: rgba(255,255,255,.07); }
+.nv-quick-actions button:first-child:hover { color: #15261f; background: #c3f4e1; }
+.nv-reaction { display: flex; align-items: center; gap: 6px; margin: 0 0 12px; color: var(--text-3); font-size: 8px; }
+.nv-reaction i { width: 4px; height: 4px; border-radius: 50%; background: var(--text-3); }
+.has-reaction .nv-reaction { color: var(--nova-lilac); }
+.has-reaction .nv-reaction i { background: var(--nova-lilac); box-shadow: 0 0 8px rgba(188,178,244,.45); }
+.nv-heart { position: absolute; z-index: 4; top: 30px; right: 18px; color: #f2b8d5; font-size: 18px; font-style: normal; opacity: 0; transform: scale(.4) rotate(-14deg); pointer-events: none; }
+.nova-word-react .nv-heart { animation: novaHeart 1.4s var(--nova-ease); }
+.nova-word-react .home-nova-avatar, .nova-word-react .nv-live-avatar { animation: novaDelight .65s var(--nova-ease); }
+.nv-portrait { transform-origin: 50% 85%; }
+.nova-playing .nv-portrait { animation: novaDance 4.8s ease-in-out infinite; }
+.nova-playing .nv-portrait img { animation: novaStep 2.4s ease-in-out infinite; }
+.nova-beat .nv-portrait { filter: brightness(1.08); }
+.nova-beat .home-nova-avatar img, .nova-beat .nova-context-avatar img { transform: translate(-7px,-4px) rotate(-3deg); }
+.nova-syncing .nv-portrait .nv-halo { animation: novaSyncSpin 3s linear infinite; border-color: rgba(172,232,208,.4); }
+.nv-scan { position: absolute; z-index: 3; left: 28px; right: 28px; top: 25px; height: 1px; opacity: 0; background: linear-gradient(90deg,transparent,var(--nova-mint),transparent); box-shadow: 0 0 9px var(--nova-mint); pointer-events: none; }
+.nova-syncing .nv-scan { opacity: .75; animation: novaScan 1.8s ease-in-out infinite alternate; }
+.nova-syncing .nv-portrait img { animation: novaSyncFocus 1.8s ease-in-out infinite alternate; }
+@keyframes novaDance { 0%,100% { transform: translateX(-50%) rotate(-1.2deg); } 25% { transform: translateX(-50%) translateY(-3px) rotate(1.4deg); } 50% { transform: translateX(-50%) rotate(-.4deg); } 75% { transform: translateX(-50%) translateY(-3px) rotate(-1.8deg); } }
+@keyframes novaStep { 0%,100% { transform: translate3d(-2px,0,0); } 50% { transform: translate3d(2px,-5px,0); } }
+@keyframes novaHeart { 0% { opacity: 0; transform: scale(.4) rotate(-14deg); } 30% { opacity: 1; transform: scale(1.15) rotate(7deg); } 70% { opacity: 1; } 100% { opacity: 0; transform: translateY(-20px) scale(.85) rotate(12deg); } }
+@keyframes novaDelight { 0%,100% { transform: none; } 40% { transform: translateY(-4px) rotate(-3deg); } }
+@keyframes novaScan { from { transform: translateY(5px); } to { transform: translateY(145px); } }
+@keyframes novaSyncFocus { from { transform: scale(1); } to { transform: scale(1.025); } }
+body.win-hidden .nv-portrait, body.win-hidden .nv-portrait img, body.win-hidden .nv-scan, body.win-hidden .nv-heart,
+body.reduce-motion .nv-portrait, body.reduce-motion .nv-portrait img, body.reduce-motion .nv-scan, body.reduce-motion .nv-heart,
+body.reduce-motion .home-nova-avatar, body.reduce-motion .nv-live-avatar { animation: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .nv-portrait, .nv-portrait img, .nv-scan, .nv-heart, .home-nova-avatar, .nv-live-avatar { animation: none !important; }
+}
+@media (max-width: 1050px) {
+  .nova-context-open { display: none; }
+}
+
+/* При открытой боковой панели главная перестраивается по своей фактической ширине. */
+body.theme-orbit #app:has(.side-panel.open) .home-wave {
+  height: 440px;
+  min-height: 440px;
+  grid-template-columns: minmax(0,1fr) 150px;
+  padding: 30px 28px 80px;
+}
+body.theme-orbit #app:has(.side-panel.open) .home-wave .wave-text { max-width: none; }
+body.theme-orbit #app:has(.side-panel.open) .home-wave-kicker { margin-bottom: 12px; font-size: 8px; }
+body.theme-orbit #app:has(.side-panel.open) .home-wave .wave-text h2 { margin-bottom: 12px; font-size: clamp(30px,2.5vw,36px); line-height: 1.06; letter-spacing: -1.3px; }
+body.theme-orbit #app:has(.side-panel.open) .home-wave .wave-text p { margin-bottom: 16px; font-size: 11px; }
+body.theme-orbit #app:has(.side-panel.open) .home-wave .chips { gap: 5px; }
+body.theme-orbit #app:has(.side-panel.open) .home-wave .chip { min-height: 28px; padding: 6px 10px; font-size: 10px; }
+body.theme-orbit #app:has(.side-panel.open) .home-wave .home-wave-settings { display: none; }
+body.theme-orbit #app:has(.side-panel.open) .home-orbit-stage { left: calc(100% - 174px); bottom: 64px; }
+body.theme-orbit #app:has(.side-panel.open) .home-wave-play { top: 42%; right: 50%; width: 86px; height: 86px; }
+body.theme-orbit #app:has(.side-panel.open) .home-play-label { top: calc(100% + 14px); font-size: 6.5px; }
+body.theme-orbit #app:has(.side-panel.open) .home-orbit-index,
+body.theme-orbit #app:has(.side-panel.open) .home-orbit-caption { display: none; }
+body.theme-orbit #app:has(.side-panel.open) .home-nova { left: 28px; right: 28px; bottom: 18px; }
+body.theme-orbit #app:has(.side-panel.open) .home-nova small { max-width: none; }
+@media (max-width: 1150px) {
+  body.theme-orbit #app:has(.side-panel.open) .home-wave { grid-template-columns: minmax(0,1fr) 112px; padding-left: 24px; padding-right: 24px; }
+  body.theme-orbit #app:has(.side-panel.open) .home-wave .wave-text h2 { font-size: 30px; }
+  body.theme-orbit #app:has(.side-panel.open) .home-orbit-stage { left: calc(100% - 134px); }
+  body.theme-orbit #app:has(.side-panel.open) .home-wave-play { width: 70px; height: 70px; }
+  body.theme-orbit #app:has(.side-panel.open) .home-nova { left: 24px; right: 24px; }
+}

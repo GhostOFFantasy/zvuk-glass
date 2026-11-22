@@ -23,6 +23,52 @@
   let accent2 = '#ff7ab6';
   let tIdle = 0;
 
+  const observedCanvases = new WeakMap();
+  const canvasVisibility = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      const h = observedCanvases.get(entry.target);
+      if (!h) continue;
+      h.onscreen = entry.isIntersecting;
+      if (h.onscreen) start();
+    }
+  }, { rootMargin: '160px' });
+
+  function impactLayer(canvas) {
+    const np = canvas?.closest('.np');
+    if (np) return np.querySelector('.clip-box.clip-on') || np.querySelector('.cf-item.cur .cf-art') || np.querySelector('.np-scene');
+    const stage = canvas?.closest('.vz-stage');
+    if (stage) return stage.querySelector('.clip-box.clip-on') || stage.querySelector('.vz-cover') || stage.querySelector('.vz-media');
+    return canvas?.parentElement;
+  }
+
+  function clearImpact(h) {
+    const current = impactLayer(h.canvas);
+    for (const layer of new Set([h._impactLayer, current])) {
+      if (!layer) continue;
+      layer.style.setProperty('--bass-punch', '1');
+      layer.style.setProperty('--bass-light', '1');
+    }
+    h._impactLayer = null;
+    h._impactCss = 1;
+  }
+
+  function clearVisual(h) {
+    const { canvas, g } = h;
+    if (g) {
+      g.save();
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.globalAlpha = 1;
+      g.globalCompositeOperation = 'source-over';
+      g.shadowBlur = 0;
+      g.clearRect(0, 0, canvas.width, canvas.height);
+      g.restore();
+    }
+    if (h.parts) h.parts.length = 0;
+    if (h.rip) h.rip.length = 0;
+    h.blank = true;
+    clearImpact(h);
+  }
+
   const Viz = {
     STYLES,
     COLORS,
@@ -30,9 +76,15 @@
     level: 0, // 0..1 общая громкость
     beat: 0, // затухающий импульс на сильной доле
     _bassAvg: 0,
+    audioConsumers: new Set(), // активные 3D-сцены тоже используют FFT, даже без 2D-холста
 
     /** Подключить canvas. opts: { style, color, sensitivity, bars, glow, idle, onFrame } */
     attach(canvas, opts = {}) {
+      const previous = observedCanvases.get(canvas);
+      if (previous) {
+        handles.delete(previous);
+        previous.resizeObserver?.disconnect();
+      }
       const h = {
         canvas,
         g: canvas.getContext('2d'),
@@ -40,24 +92,51 @@
         vals: null,
         peaks: null,
         parts: [],
+        onscreen: true,
       };
       h.seekEl = h.opts.seekEl || null;
+      h.resizeObserver = new ResizeObserver((entries) => {
+        const rect = entries[entries.length - 1]?.contentRect;
+        if (!rect) return;
+        h._cssW = rect.width;
+        h._cssH = rect.height;
+      });
+      h.resizeObserver.observe(canvas);
       handles.add(h);
+      observedCanvases.set(canvas, h);
+      canvasVisibility.observe(canvas);
       if (h.seekEl) attachRingSeek(h.seekEl, canvas);
       start();
       return {
         set(o) {
           Object.assign(h.opts, o);
-          h.vals = null;
+          if (h.opts.style !== 'impact') {
+            h._impact = 0;
+            clearImpact(h);
+          }
+          // Ползунок отклика не должен обнулять сглаженный спектр на каждом событии input.
+          const smoothOnly = Object.keys(o).every((key) => key === 'sensitivity' || key === 'onFrame');
+          if (!smoothOnly) h.vals = null;
           h._ringLayout = '';
           h._ringEnabled = undefined;
           if (h.seekEl) {
             h.seekEl._ringGeometry = null;
             h.seekEl.classList.remove('available', 'near-ring');
           }
+          if (h.opts.style === 'none') {
+            h._impact = 0;
+            clearVisual(h);
+          } else {
+            h.blank = false;
+            start();
+          }
         },
         stop() {
+          clearVisual(h);
           handles.delete(h);
+          h.resizeObserver?.disconnect();
+          canvasVisibility.unobserve(canvas);
+          observedCanvases.delete(canvas);
         },
       };
     },
@@ -122,6 +201,9 @@
       if (!h.canvas.isConnected) {
         h.seekEl?._ringSeekCleanup?.();
         handles.delete(h);
+        h.resizeObserver?.disconnect();
+        canvasVisibility.unobserve(h.canvas);
+        observedCanvases.delete(h.canvas);
       }
     }
     if (!handles.size || Viz.hidden) return;
@@ -129,7 +211,8 @@
     quiet = live || Viz.level > 0.002 || Viz.beat > 0.01 ? 0 : quiet + 1;
     if (quiet > 90) {
       let calm = true;
-      for (const h of handles) if (h.opts.idle || h.opts.onFrame) calm = false;
+      for (const h of handles) if (h.onscreen !== false && (h.opts.idle || h.opts.onFrame)) calm = false;
+      if (Viz.audioConsumers.size) calm = false;
       if (calm) {
         nap = setTimeout(() => {
           nap = 0;
@@ -140,32 +223,19 @@
     }
     raf = requestAnimationFrame(loop);
     Viz._frames = (Viz._frames || 0) + 1;
-    readColors();
-    tIdle += 0.016;
-    if (AudioFX.ready) {
-      const a = AudioFX.analyser;
-      if (!freq || freq.length !== a.frequencyBinCount) {
-        freq = new Uint8Array(a.frequencyBinCount);
-        time = new Uint8Array(a.fftSize);
-      }
-      a.getByteFrequencyData(freq);
-      a.getByteTimeDomainData(time);
-      const b = live ? band(30, 160) : 0;
-      Viz.bass = Viz.bass * 0.6 + b * 0.4;
-      Viz.level = Viz.level * 0.7 + (live ? band(30, 12000) : 0) * 0.3;
-      // Бит: бас заметно выше скользящего среднего
-      Viz._bassAvg = Viz._bassAvg * 0.95 + b * 0.05;
-      if (live && b > Viz._bassAvg * 1.25 && b > 0.45 && Viz.beat < 0.3) Viz.beat = 1;
-      Viz.beat *= 0.9;
-    }
-    Viz.onTick && Viz.onTick(Viz, live);
-    // Пока открыт полноэкранный плеер, холсты под ним не рисуем
+    const now = performance.now();
+    const tickDt = Math.min(0.05, Math.max(0.001, (now - (Viz._tickAt || now - 16.67)) / 1000));
+    Viz._tickAt = now;
+    tIdle += tickDt;
     const npEl = document.getElementById('nowPlaying');
     const npOpen = npEl && !npEl.classList.contains('hidden');
-    const now = performance.now();
+    const fullScreen = document.fullscreenElement;
+    let needData = Viz.audioConsumers.size > 0;
+    let needTime = false;
     for (const h of handles) {
-      if (npOpen && !npEl.contains(h.canvas)) continue;
-      // Счёт разрешённых кадров от стартовой метки: точная частота на любом дисплее, без разгона после задержек.
+      h._due = h.onscreen !== false && h.opts.style !== 'none' && !(npOpen && !npEl.contains(h.canvas)) && !(fullScreen && !fullScreen.contains(h.canvas));
+      if (!h._due) continue;
+      // Частота следует реальным кадрам каждого холста, без искусственного общего ограничения.
       if (h.opts.fps) {
         const interval = 1000 / h.opts.fps;
         if (h._fpsStart == null) {
@@ -173,24 +243,76 @@
           h._fpsDone = 0;
         }
         const target = Math.floor((now - h._fpsStart) / interval);
-        if (target <= h._fpsDone) continue;
-        if (target - h._fpsDone > 2) h._fpsDone = target - 1;
-        h._fpsDone = target;
+        if (target <= h._fpsDone) h._due = false;
+        else {
+          if (target - h._fpsDone > 2) h._fpsDone = target - 1;
+          h._fpsDone = target;
+        }
       }
-      draw(h, live);
+      if (h._due) {
+        needData = true;
+        if (h.opts.style === 'waves') needTime = true;
+      }
     }
+    // Нет рисуемого кадра или активной 3D-сцены — FFT и связанные обновления не нужны.
+    if (needData && AudioFX.ready) {
+      readColors();
+      const a = AudioFX.analyser;
+      if (!freq || freq.length !== a.frequencyBinCount) freq = new Uint8Array(a.frequencyBinCount);
+      if (needTime && (!time || time.length !== a.fftSize)) time = new Uint8Array(a.fftSize);
+      a.getByteFrequencyData(freq);
+      // Временной массив нужен только волнам; полосы и 3D используют спектр.
+      if (needTime) a.getByteTimeDomainData(time);
+      const b = live ? band(30, 160) : 0;
+      Viz.bass = Viz.bass * 0.6 + b * 0.4;
+      Viz.level = Viz.level * 0.7 + (live ? band(30, 12000) : 0) * 0.3;
+      Viz._bassAvg = Viz._bassAvg * 0.95 + b * 0.05;
+      if (live && b > Viz._bassAvg * 1.25 && b > 0.45 && Viz.beat < 0.3) {
+        Viz.beat = 1;
+        window.dispatchEvent(new Event('zg:beat'));
+      }
+      Viz.beat *= 0.9;
+    }
+    if (needData) Viz.onTick && Viz.onTick(Viz, live);
+    for (const h of handles) if (h._due) draw(h, live);
   }
 
   function fit(h) {
     const c = h.canvas;
     const dpr = Math.min(h.opts.maxDpr || 2, window.devicePixelRatio || 1);
-    const w = Math.max(1, Math.round(c.clientWidth * dpr));
-    const ht = Math.max(1, Math.round(c.clientHeight * dpr));
+    // clientWidth/clientHeight внутри кадра после вставки строк вызывали принудительный layout.
+    // ResizeObserver хранит актуальную геометрию между реальными изменениями размера.
+    if (h._cssW == null || h._fitDpr !== dpr) {
+      h._cssW = c.clientWidth;
+      h._cssH = c.clientHeight;
+    }
+    h._fitDpr = dpr;
+    const w = Math.max(1, Math.round(h._cssW * dpr));
+    const ht = Math.max(1, Math.round(h._cssH * dpr));
     if (c.width !== w || c.height !== ht) {
       c.width = w;
       c.height = ht;
     }
     return { w, h: ht, dpr };
+  }
+
+  /** Единый отклик для всех стилей: настройка применяется один раз и меняется без скачка. */
+  function response(h) {
+    const requested = Number(h.opts.sensitivity);
+    const target = Number.isFinite(requested) && requested > 0 ? requested : 1;
+    if (h._response != null && h._responseFrame === Viz._frames) return h._response;
+    h._responseFrame = Viz._frames;
+    const now = performance.now();
+    if (h._response == null) {
+      h._response = target;
+      h._responseAt = now;
+      return target;
+    }
+    const dt = Math.min(0.05, Math.max(0.001, (now - h._responseAt) / 1000));
+    h._responseAt = now;
+    h._response += (target - h._response) * (1 - Math.exp(-dt * 12));
+    if (Math.abs(target - h._response) < 0.001) h._response = target;
+    return h._response;
   }
 
   /** Значения столбцов в логарифмической шкале 35 Гц – 16 кГц. */
@@ -199,7 +321,7 @@
       h.vals = new Float32Array(n);
       h.peaks = new Float32Array(n);
     }
-    const s = h.opts.sensitivity || 1;
+    const s = response(h);
     for (let j = 0; j < n; j++) {
       let v;
       if (live) {
@@ -361,7 +483,7 @@
       g.beginPath();
       const step = Math.max(1, Math.floor((time ? time.length : 1024) / 512));
       const N = time ? Math.floor(time.length / step) : 512;
-      const amp = ht * 0.38 * (o.sensitivity || 1);
+      const amp = ht * 0.38 * response(h);
       for (let i = 0; i < N; i++) {
         const v = live && time ? (time[i * step] - 128) / 128 : Math.sin(tIdle * 2 + i / 30) * 0.05;
         const x = (i / (N - 1)) * w;
@@ -374,30 +496,30 @@
       const cy = ht / 2;
       const vals = values(h, live, 48);
       g.globalCompositeOperation = 'lighter';
-      const spawn = live ? Math.floor(2 + Viz.bass * 10 + Viz.beat * 24) : 1;
-      for (let i = 0; i < spawn && h.parts.length < 700; i++) {
+      const spawn = live ? Math.floor(1 + Viz.bass * 4 + Viz.beat * 9) : 1;
+      for (let i = 0; i < spawn && h.parts.length < 320; i++) {
         const a = Math.random() * Math.PI * 2;
-        const sp = (1.2 + Math.random() * 3 + Viz.bass * 7) * dpr;
-        h.parts.push({ x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1, r: (1 + Math.random() * 3) * dpr, hue: Math.random() });
+        const sp = (0.8 + Math.random() * 2.3 + Viz.bass * 4) * dpr;
+        h.parts.push({ x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1, r: (0.65 + Math.random() * 1.6) * dpr, hue: Math.random() });
       }
       for (let i = h.parts.length - 1; i >= 0; i--) {
         const p = h.parts[i];
         p.x += p.vx * (1 + Viz.beat);
         p.y += p.vy * (1 + Viz.beat);
-        p.life -= 0.008;
+        p.life -= 0.011;
         if (p.life <= 0 || p.x < -20 || p.x > w + 20 || p.y < -20 || p.y > ht + 20) {
           h.parts.splice(i, 1);
           continue;
         }
-        g.globalAlpha = Math.max(0, p.life) * o.alpha;
+        g.globalAlpha = Math.max(0, p.life) * o.alpha * 0.82;
         g.fillStyle = o.color === 'rainbow' ? `hsl(${Math.round(p.hue * 360)} 90% 65%)` : o.color === 'white' ? '#fff' : p.hue > 0.5 ? accent : accent2;
         g.beginPath();
-        g.arc(p.x, p.y, p.r * (1 + Viz.bass), 0, Math.PI * 2);
+        g.arc(p.x, p.y, p.r * (1 + Viz.bass * 0.6), 0, Math.PI * 2);
         g.fill();
       }
-      // центральное свечение
-      g.globalAlpha = o.alpha * (0.35 + Viz.bass * 0.5);
-      const rg = g.createRadialGradient(cx, cy, 0, cx, cy, Math.min(w, ht) * (0.18 + Viz.bass * 0.12));
+      // Мягкий центральный источник не засвечивает видео и интерфейс.
+      g.globalAlpha = o.alpha * (0.16 + Viz.bass * 0.24);
+      const rg = g.createRadialGradient(cx, cy, 0, cx, cy, Math.min(w, ht) * (0.14 + Viz.bass * 0.08));
       rg.addColorStop(0, accent);
       rg.addColorStop(1, 'transparent');
       g.fillStyle = rg;
@@ -420,6 +542,8 @@
         g.stroke();
       }
       g.globalAlpha = o.alpha;
+    } else if (style === 'impact') {
+      drawImpact(h, live, w, ht, dpr);
     } else if (style === 'tide' || style === 'rings') {
       drawTide(h, live, w, ht, dpr);
     } else if (style === 'infinity') {
@@ -459,7 +583,6 @@
     const g = h.g;
     const n = 26;
     const vals = values(h, live, n);
-    const s = h.opts.sensitivity || 1;
     const layers = [
       { amp: 0.27, c: accRGB, a: 0.45, ph: 0, sp: 0.7 },
       { amp: 0.2, c: acc2RGB, a: 0.32, ph: 2.1, sp: 0.55 },
@@ -469,7 +592,7 @@
       const pts = [];
       for (let i = 0; i < n; i++) {
         const k = (i + Math.round(L.ph * 2)) % n;
-        const v = vals[k] * s;
+        const v = vals[k];
         const wob = 0.025 * Math.sin(tIdle * L.sp + i * 0.55 + L.ph);
         pts.push([(i / (n - 1)) * w, ht - (0.05 + v * L.amp + wob + 0.03) * ht]);
       }
@@ -496,14 +619,61 @@
     }
   }
 
+  /** Пульс кадра: заметная мягкая пульсация от общего уровня и баса, без тряски. */
+  function drawImpact(h, live, w, ht, dpr) {
+    const now = performance.now();
+    const dt = Math.min(0.05, Math.max(0.001, (now - (h._impactAt || now - 16)) / 1000));
+    h._impactAt = now;
+    h._motionQuery ||= window.matchMedia('(prefers-reduced-motion: reduce)');
+    const calm = h._motionQuery.matches || document.body.classList.contains('reduce-motion');
+    const musicalEnergy = Math.min(1, Viz.level * 0.72 + Viz.bass * 0.48 + Viz.beat * 0.2);
+    const target = live && !calm ? Math.max(0.025, musicalEnergy) : 0;
+    const current = h._impact || 0;
+    // Быстрая атака и экспоненциальное затухание сохраняют пульс даже между сильными басами.
+    h._impact = target > current
+      ? current + (target - current) * (1 - Math.exp(-dt * 28))
+      : current + (target - current) * (1 - Math.exp(-dt * 9));
+    const energy = h._impact < 0.004 ? 0 : h._impact;
+    const scale = calm ? 1 : Math.min(1.08, 1 + energy * 0.062 * response(h));
+    const light = calm ? 1 : Math.min(1.16, 1 + energy * 0.12 * response(h));
+    const layer = impactLayer(h.canvas);
+    if (layer !== h._impactLayer) {
+      if (h._impactLayer) {
+        h._impactLayer.style.setProperty('--bass-punch', '1');
+        h._impactLayer.style.setProperty('--bass-light', '1');
+      }
+      h._impactLayer = layer;
+      h._impactCss = 0;
+    }
+    if (layer && Math.abs((h._impactCss || 1) - scale) > 0.00015) {
+      layer.style.setProperty('--bass-punch', scale.toFixed(4));
+      layer.style.setProperty('--bass-light', light.toFixed(3));
+      h._impactCss = scale;
+    }
+    if (live && Viz.beat > 0.95 && now - (h._impactBeatAt || 0) > 280) {
+      h._impactWave = 0;
+      h._impactBeatAt = now;
+    }
+    h._impactWave = Math.min(1, (h._impactWave ?? 1) + dt * 1.35);
+    if (!energy || h._impactWave >= 1) return;
+    const g = h.g;
+    const radius = Math.max(w, ht) * (0.12 + h._impactWave * 0.46);
+    g.globalAlpha = (1 - h._impactWave) * energy * 0.24;
+    g.strokeStyle = accent;
+    g.lineWidth = 2 * dpr;
+    g.beginPath();
+    g.arc(w / 2, ht / 2, radius, 0, Math.PI * 2);
+    g.stroke();
+    g.globalAlpha = 1;
+  }
+
   /** Аура: мягкое свечение вокруг обложки + расходящиеся круги на сильных долях. */
   function drawAura(h, live, w, ht, dpr) {
     const g = h.g;
     const c = centerOf(h, w, ht, dpr);
-    const s = h.opts.sensitivity || 1;
     const vals = values(h, live, 12);
-    const bass = live ? Math.min(1, (vals[0] + vals[1] + vals[2]) / 3 * 1.4 * s) : 0.12 + 0.05 * Math.sin(tIdle * 1.2);
-    const high = live ? Math.min(1, (vals[7] + vals[8] + vals[9]) / 3 * 2 * s) : 0.1;
+    const bass = live ? Math.min(1, (vals[0] + vals[1] + vals[2]) / 3 * 1.4) : 0.12 + 0.05 * Math.sin(tIdle * 1.2);
+    const high = live ? Math.min(1, (vals[7] + vals[8] + vals[9]) / 3 * 2) : 0.1;
     const R1 = c.r * (1.12 + bass * 0.45);
     let gr = g.createRadialGradient(c.x, c.y, c.r * 0.8, c.x, c.y, R1 * 1.35);
     gr.addColorStop(0, rgba(accRGB, Math.min(0.5, 0.3 * (0.35 + bass))));
@@ -544,7 +714,6 @@
     const g = h.g;
     const n = h.opts.bars || 64;
     const vals = values(h, live, n);
-    const s = h.opts.sensitivity || 1;
     const gap = (w / n) * 0.45;
     const bw = w / n - gap;
     const gr = g.createLinearGradient(0, ht * 0.6, 0, ht);
@@ -552,7 +721,7 @@
     gr.addColorStop(1, rgba(acc2RGB, 0.04));
     g.fillStyle = gr;
     for (let i = 0; i < n; i++) {
-      const v = Math.min(1, vals[i] * s);
+      const v = vals[i];
       const bh = Math.max(2 * dpr, v * ht * (h.opts.barH || 0.36));
       roundBar(g, i * (bw + gap) + gap / 2, ht - bh, bw, bh, bw / 2);
     }
@@ -569,7 +738,7 @@
     const cy = cc ? cc.y : ht / 2;
     const k = live ? 1 : 0;
     const R0 = (cc ? cc.r + 10 * dpr : (o.inner || 92) * dpr) * (1 + Viz.beat * 0.035 * k);
-    const maxLen = cc ? cc.r * 0.42 * (o.sensitivity || 1) : Math.max(8 * dpr, Math.min(w, ht) / 2 - R0 - 4 * dpr);
+    const maxLen = cc ? cc.r * 0.42 : Math.max(8 * dpr, Math.min(w, ht) / 2 - R0 - 4 * dpr);
     h.rot = (h.rot || 0) + (live ? 0.004 + Viz.bass * 0.01 : 0.0015);
     // мягкое свечение вокруг кнопки
     g.globalAlpha = 0.35 + (live ? Viz.bass * 0.45 : 0.1 * (1 + Math.sin(tIdle * 1.4)));

@@ -1,0 +1,186 @@
+/* Точечная стабилизация интерфейса: панели, текст, действия и адаптивная геометрия. */
+
+/* Текстовая панель и настройки сцены всегда выше содержимого сцены. */
+body .vz-panel.vz-controls { z-index: 40 !important; }
+.np-lyrics {
+  box-sizing: border-box; max-width: calc(100vw - 32px);
+  overflow-x: hidden; overflow-y: auto;
+}
+.np-lyrics::after { display: none; }
+.np-lyrics .lyrics { width: 100%; box-sizing: border-box; }
+.np-lyrics .lyrics .ln {
+  display: block; box-sizing: border-box; width: 100%; max-width: 100%;
+  white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: break-word;
+  transform: none; transform-origin: left center;
+}
+
+/* Поиск: последняя видимая песня не обрезана; длинный список прокручивается внутри. */
+.search-tracks {
+  max-height: min(60vh, 540px) !important; overflow-x: hidden !important; overflow-y: auto !important;
+  padding-bottom: 14px; scrollbar-width: thin; -webkit-mask-image: none !important; mask-image: none !important;
+}
+.search-tracks .tr:last-child { margin-bottom: 2px; }
+
+/* Действия не пересекаются с hero: отдельная строка под верхней зоной. */
+body.theme-orbit .hero:not(.artist-hero),
+body:not(.design-classic) .hero:not(.artist-hero) { margin-bottom: 24px; padding-bottom: 28px; }
+body.theme-orbit .hero:not(.artist-hero) + .actions,
+body:not(.design-classic) .hero:not(.artist-hero) + .actions {
+  position: relative; z-index: 6; margin: 0 0 24px; padding-top: 0;
+}
+body.theme-orbit .liked-actions { margin: 0 0 24px !important; padding-left: 0 !important; }
+.liked-search { margin-left: auto; }
+
+/* Симметрия левой и правой частей полноэкранного плеера. */
+.np-lyr-src, .np-lyrics { right: clamp(24px, 5vw, 72px); width: min(42vw, 640px); }
+.np-lyrics { padding-left: clamp(12px, 2vw, 32px); box-sizing: border-box; }
+.np-lyrics .lyrics { padding-left: 0; padding-right: 0; }
+.np-lyrics .lyrics .ln { padding-left: 14px; padding-right: 14px; }
+
+/* Мини-эквалайзер: и сетка, и ряд пресетов прокручиваются в доступном направлении. */
+.np-eq .ne-presets { overscroll-behavior: contain; }
+
+/* «Пульс кадра»: при клипе движется клип, иначе — видимая обложка трека. */
+.vz-stage .vz-cover,
+.np .cf-item.cur .cf-art,
+.vz-stage .vz-media.clip-box,
+.np .vz-media.clip-box {
+  transform-origin: 50% 50%;
+  transform: scale(var(--bass-punch, 1));
+  filter: brightness(var(--bass-light, 1));
+  transition: filter 80ms linear;
+}
+.np-bg { transform: none; filter: none; }
+body.reduce-motion .vz-stage .vz-cover, body.reduce-motion .np .cf-item.cur .cf-art,
+body.reduce-motion .vz-stage .vz-media, body.reduce-motion .np .vz-media { transform: none; filter: none; }
+@media (prefers-reduced-motion: reduce) {
+  .vz-stage .vz-cover, .np .cf-item.cur .cf-art,
+  .vz-stage .vz-media, .np .vz-media { transform: none; filter: none; }
+}
+
+/* Обложка, название и управление образуют один компактный блок по центру. */
+.np-stage { gap: 10px; }
+.np-flow { height: calc(var(--cf) + 12px); }
+.np-meta { margin-top: 0; }
+@media (max-height: 790px) {
+  .np-stage { gap: 6px; }
+  .np-flow { height: calc(var(--cf) + 8px); }
+}
+
+/* Нижние настройки орбиты повторяют визуальный язык карточек настроения. */
+.opt-pill {
+  position: relative; overflow: hidden; justify-content: flex-start; gap: 10px;
+  height: 68px; padding: 10px 12px; text-align: left;
+  color: var(--text-2); background: rgba(8,9,16,.32);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.09), inset 0 1px 0 rgba(255,255,255,.08);
+}
+.opt-pill::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(120% 140% at 0 0, var(--m1), transparent 68%), linear-gradient(135deg, transparent, var(--m2));
+  opacity: .13; transition: opacity .24s ease;
+}
+.opt-pill > * { position: relative; }
+.opt-icon {
+  display: grid; place-items: center; flex: none; width: 32px; height: 32px;
+  border-radius: 11px; color: var(--m1); background: color-mix(in srgb, var(--m1) 12%, transparent);
+  transition: transform .24s var(--ease), color .2s ease, background .2s ease;
+}
+.opt-pill .opt-icon .i { width: 19px; height: 19px; }
+.opt-copy { display: grid; gap: 3px; min-width: 0; padding-right: 3px; }
+.opt-copy b, .opt-copy small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.opt-copy b { color: var(--text); font: 700 12.5px var(--font-display); }
+.opt-copy small { color: var(--text-3); font-size: 10px; line-height: 1.2; }
+.opt-pill .opt-check {
+  position: absolute; top: 8px; right: 8px; display: grid; place-items: center;
+  width: 18px; height: 18px; border-radius: 50%; color: #101016; background: var(--m1);
+  opacity: 0; transform: scale(.6); transition: transform .24s var(--ease), opacity .2s ease;
+}
+.opt-pill .opt-check .i { width: 12px; height: 12px; }
+.opt-pill:hover { color: var(--text); background: rgba(8,9,16,.42); transform: translateY(-2px); }
+.opt-pill:hover::before { opacity: .24; }
+.opt-pill:hover .opt-icon { transform: translateY(-1px) rotate(-5deg); }
+.opt-pill.on {
+  color: var(--text); background: rgba(8,9,16,.4);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--m1) 64%, #fff), 0 8px 22px color-mix(in srgb, var(--m1) 12%, transparent);
+}
+.opt-pill.on::before { opacity: .3; }
+.opt-pill.on .opt-icon { color: #101016; background: var(--m1); }
+.opt-pill.on .opt-copy small { color: var(--text-2); }
+.opt-pill.on .opt-check { opacity: 1; transform: scale(1); }
+/* Единый мягкий ритм всех карточек музыкального пульта. */
+body:not(.design-classic) .wv-console { padding:26px 12px 12px; border-radius:22px; background:rgba(255,255,255,.018); box-shadow:inset 0 0 0 1px var(--line); }
+body:not(.design-classic) .mood { border-radius:18px; }
+body:not(.design-classic) .mood-icon,
+body:not(.design-classic) .opt-icon { border-radius:12px; }
+body:not(.design-classic) .wv-tune-block,
+body:not(.design-classic) .wv-genres { padding:16px; border-radius:18px; background:rgba(255,255,255,.025); box-shadow:inset 0 0 0 1px var(--line); }
+body:not(.design-classic) .opt-pill { border-radius:16px; }
+body:not(.design-classic) .wv-genres .chip { border-radius:11px; }
+
+/* Плеер и текст образуют более компактную пару; мобильная компоновка сохраняется. */
+.np-lyr-src, .np-lyrics { right:6vw; width:38vw; }
+
+/* Сворачиваются только портрет и реплика; управление, трек и текст остаются доступны. */
+.nv-header { position:relative; z-index:3; padding:2px 4px 0; }
+.nv-collapse-wrap { display:grid; grid-template-rows:1fr; opacity:1; transition:grid-template-rows .45s var(--ease),opacity .3s ease; }
+.nv-collapse-body { min-height:0; overflow:hidden; }
+.nova-panel.is-collapsed .nv-collapse-wrap { grid-template-rows:0fr; opacity:0; pointer-events:none; }
+.nv-watch .i { transition:transform .35s var(--ease); }
+.nova-panel.is-collapsed .nv-watch .i { transform:rotate(-90deg); }
+.nv-collapse-body .nv-intro { min-height:332px; padding-top:0; }
+.nv-collapse-body .nv-portrait { top:0; }
+.nv-collapse-body .nv-scan { top:6px; }
+.nv-collapse-body .nv-heart { top:14px; }
+@media (max-width:640px) {
+  .np.lyrics-on .np-stage { transform:translateX(-22vw); }
+  body:not(.design-classic) .wv-console { padding:20px 8px 8px; }
+  body:not(.design-classic) .wv-tune-block,
+  body:not(.design-classic) .wv-genres { padding:12px; }
+}
+@media (max-width: 560px) {
+  .opt-pill { height: 62px; padding: 8px; gap: 7px; }
+  .opt-icon { width: 28px; height: 28px; }
+  .opt-copy small { display: none; }
+}
+
+/* Тачпад в погружении: canvas получает колесо и жесты напрямую. */
+.wv-3d-canvas { overscroll-behavior: contain; }
+
+@media (max-width: 900px) {
+  body.theme-orbit .hero:not(.artist-hero),
+  body:not(.design-classic) .hero:not(.artist-hero) { padding-bottom: 18px; margin-bottom: 18px; }
+  .liked-search { margin-left: 0; }
+  .np-lyr-src, .np-lyrics { right: 20px; width: min(48vw, 540px); }
+}
+@media (max-width: 640px) {
+  .np-lyr-src, .np-lyrics { right: 14px; width: calc(100vw - 28px); padding-left: 0; }
+  .search-tracks { max-height: 58vh !important; }
+  .actions { flex-wrap: wrap; }
+}
+
+/* Ритм-игра: сложность и Overdrive. */
+.pulse-difficulty { margin-top: 14px; }
+.pulse-difficulty > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 7px; }
+.pulse-difficulty button {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 42px; padding: 7px 9px;
+  border: 1px solid rgba(205,211,235,.1); border-radius: 10px; color: var(--text-2); background: rgba(255,255,255,.025);
+  font-size: 10px; cursor: pointer; transition: border-color .16s ease, background .16s ease, color .16s ease;
+}
+.pulse-difficulty button small { color: var(--text-3); font-size: 8px; }
+.pulse-difficulty button[aria-pressed="true"] { color: var(--nova-mint); border-color: rgba(172,232,208,.42); background: rgba(172,232,208,.075); }
+.pulse-difficulty button:hover { border-color: rgba(172,232,208,.35); }
+.sync-overdrive { display: block; min-height: 11px; margin-top: 2px; color: #f2cf8b; font: 700 8px var(--font-tech); letter-spacing: .45px; }
+.pulse-shell.is-overdrive .pulse-energy { color: #f2cf8b; filter: drop-shadow(0 0 9px rgba(242,207,139,.24)); }
+.pulse-shell[data-difficulty="expert"] .sync-canvas { background: #080b17; }
+@media (max-width: 640px) {
+  .pulse-difficulty > div { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .pulse-difficulty button { padding: 6px; font-size: 8px; }
+  .pulse-difficulty button small { display: none; }
+}
+
+.pulse-controls:has(button[data-lane="4"]) { grid-template-columns: repeat(5, minmax(0, 1fr)) 100px; }
+.pulse-controls button:nth-child(5) kbd { color: #f2cf8b; }
+@media (max-width: 900px) {
+  .pulse-controls, .pulse-controls:has(button[data-lane="4"]) { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .pulse-controls .pulse-pause { grid-column: 1 / -1; }
+}

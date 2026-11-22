@@ -138,8 +138,8 @@
       b.toggle('mini-viz-on', s.miniViz);
       b.toggle('design-classic', s.design === 'classic');
       b.toggle('theme-orbit', s.design === 'orbit');
-      // настоящее размытие под панелями нужно только поверх своих обоев с деталями
-      b.toggle('bd-on', s.design !== 'classic' && (s.bgMode === 'image' || s.bgMode === 'video'));
+      // Матовая орбитальная тема не использует backdrop-размытие даже поверх своих обоев.
+      b.toggle('bd-on', s.design === 'glass' && (s.bgMode === 'image' || s.bgMode === 'video'));
       b.toggle('seek-beat', Boolean(s.seekBeat));
       r.setProperty('--seek-h', s.seekHeight + 'px');
       const seekKey = this.seekClasses();
@@ -204,7 +204,7 @@
       this.refreshTheme();
     },
     refreshTheme() {
-      const orbital = { accent: '#8bc8ff', accent2: '#c5a6ff', c1: '#2e6da8', c2: '#725a9b', c3: '#d2a55c' };
+      const orbital = { accent: '#ace8d0', accent2: '#bcb2f4', c1: '#315a50', c2: '#4b456e', c3: '#344554' };
       const t = this.s.accentMode === 'fixed' ? themeFromColor(this.s.accent) : this.s.design === 'orbit' ? orbital : this.trackTheme;
       const key = JSON.stringify([this.s.design, t]);
       if (key === this._themeKey) return; // та же тема — не трогаем стили страницы

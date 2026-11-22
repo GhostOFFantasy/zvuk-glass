@@ -1,0 +1,250 @@
+/* Интерактивная обсерватория: только режим погружения, обычная орбита не меняется. */
+.wv-focus-transport { display: none; }
+.wv-3d-stage { display: none; }
+body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-cosmos,
+.wv-hero:fullscreen:not([data-orbit-fallback]) .wv-cosmos,
+body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-aurora,
+.wv-hero:fullscreen:not([data-orbit-fallback]) .wv-aurora,
+body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-shard,
+.wv-hero:fullscreen:not([data-orbit-fallback]) .wv-shard,
+body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-scene-btn,
+.wv-hero:fullscreen:not([data-orbit-fallback]) .wv-scene-btn { display: none; }
+body.wave-focus .wv-hero:not([data-orbit-fallback]),
+.wv-hero:fullscreen:not([data-orbit-fallback]) {
+  background:
+    radial-gradient(65% 90% at 77% 46%, color-mix(in srgb, var(--mood-a) 9%, transparent), transparent 67%),
+    radial-gradient(52% 80% at 12% 100%, color-mix(in srgb, var(--mood-b) 8%, transparent), transparent 72%),
+    linear-gradient(128deg, #07101e 0%, #040b16 45%, #030711 100%);
+}
+body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-vignette,
+.wv-hero:fullscreen:not([data-orbit-fallback]) .wv-vignette {
+  background: linear-gradient(90deg, rgba(3, 8, 17, 0.35), transparent 48%), linear-gradient(0deg, rgba(2, 6, 14, 0.6), transparent 24%);
+}
+body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-ring-seek,
+.wv-hero:fullscreen:not([data-orbit-fallback]) .wv-ring-seek { pointer-events: none !important; }
+body.wave-focus .wv-ring-seek:focus-visible ~ .wv-portal .wv-orbit-time { color: #fff; text-shadow: 0 0 13px var(--mood-a); }
+
+.wv-3d-stage {
+  position: absolute !important; inset: -7% -40% -5%; z-index: 1 !important;
+  overflow: visible; pointer-events: auto; opacity: 0; visibility: hidden;
+}
+body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-3d-stage,
+.wv-hero:fullscreen:not([data-orbit-fallback]) .wv-3d-stage {
+  display: block; opacity: 1; visibility: visible;
+}
+.wv-3d-canvas { display: block; width: 100%; height: 100%; outline: 0; touch-action: none; cursor: grab; }
+.wv-3d-loader {
+  position: absolute; left: 50%; top: 50%; display: flex; align-items: center; gap: 10px;
+  padding: 10px 15px; border: 1px solid rgba(168, 211, 247, 0.13); border-radius: 7px 16px 7px 16px;
+  color: rgba(220, 238, 255, 0.8); background: rgba(6, 15, 28, 0.72);
+  font: 500 11px var(--font-tech); letter-spacing: 0.4px; transform: translate(-50%, -50%);
+  pointer-events: none; transition: opacity 0.35s ease;
+}
+.wv-3d-loader.hidden { opacity: 0; }
+.wv-3d-loader i { width: 13px; height: 13px; border: 1px solid rgba(158, 208, 247, 0.2); border-top-color: #a5dfff; border-radius: 50%; animation: orbit3dLoad 1s linear infinite; }
+@keyframes orbit3dLoad { to { transform: rotate(360deg); } }
+.wv-3d-index {
+  position: absolute; left: 28px; top: 24px; display: flex; align-items: center; gap: 8px;
+  color: rgba(178, 207, 236, 0.44); font: 500 8px var(--font-tech); letter-spacing: 2px; pointer-events: none;
+}
+.wv-3d-index i { width: 5px; height: 5px; border: 1px solid var(--mood-a); border-radius: 50%; box-shadow: 0 0 8px color-mix(in srgb, var(--mood-a) 55%, transparent); }
+.wv-3d-reset {
+  position: absolute; right: 17px; bottom: 15px; height: 30px; padding: 0 11px;
+  border: 1px solid rgba(174, 211, 244, 0.12); border-radius: 6px 11px 6px 11px;
+  color: rgba(206, 226, 247, 0.56); background: rgba(10, 22, 38, 0.38);
+  font: 500 9px var(--font-tech); cursor: pointer; pointer-events: auto;
+  transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+.wv-3d-reset:hover { color: #edf8ff; border-color: rgba(174, 218, 252, 0.3); background: rgba(21, 43, 68, 0.68); }
+.wv-3d-reset:focus-visible { outline: 2px solid var(--mood-a); outline-offset: 3px; }
+
+/* Кнопка становится частью командной панели, а не висит поверх модели. */
+body.wave-focus .wv-focus-transport {
+  display: flex; align-items: center; gap: 16px; margin-top: 24px; padding-top: 20px;
+  border-top: 1px solid rgba(174, 211, 244, 0.1);
+}
+.wv-focus-play-slot { position: relative; width: 72px; height: 72px; flex: none; }
+.wv-focus-play-slot::after {
+  content: ''; position: absolute; inset: -5px -11px; border: 1px solid color-mix(in srgb, var(--mood-a) 24%, transparent);
+  border-radius: 50%; transform: rotate(-19deg) scaleY(0.66); pointer-events: none;
+}
+body.wave-focus .wv-focus-play-slot .wv-play,
+.wv-hero:fullscreen .wv-focus-play-slot .wv-play {
+  position: relative; left: auto; top: auto; width: 72px; height: 72px; margin: 0;
+  border: 1px solid rgba(178, 218, 252, 0.16); border-radius: 50%; transform: none;
+  background: radial-gradient(circle at 35% 28%, color-mix(in srgb, var(--mood-a) 17%, transparent), transparent 55%), rgba(11, 28, 47, 0.54);
+  box-shadow: inset 0 1px 0 rgba(233, 247, 255, 0.1), 0 8px 28px rgba(0, 4, 13, 0.3), 0 0 24px color-mix(in srgb, var(--mood-a) 7%, transparent);
+}
+body.wave-focus .wv-focus-play-slot .wv-play:hover,
+.wv-hero:fullscreen .wv-focus-play-slot .wv-play:hover { transform: scale(1.055); }
+body.wave-focus .wv-focus-play-slot .wv-play:active,
+.wv-hero:fullscreen .wv-focus-play-slot .wv-play:active { transform: scale(0.95); }
+.wv-focus-play-slot .wv-play::before { inset: 9px; }
+.wv-focus-play-slot .wv-play::after { inset: 16px; }
+.wv-focus-play-slot .wv-play > .i, .wv-focus-play-slot .wv-play.playing > .i { width: 26px; height: 26px; }
+.wv-focus-transport-copy { display: grid; gap: 5px; min-width: 0; }
+.wv-focus-transport-copy b { color: #e7f3ff; font: 550 14px var(--font-display); }
+.wv-focus-transport-copy span { color: var(--text-3); font: 450 9px var(--font-tech); letter-spacing: 0.35px; }
+body.wave-focus .wv-hero[data-orbit-fallback] .wv-focus-transport { display: none; }
+body.wave-focus #wvNowSlot, .wv-hero:fullscreen #wvNowSlot { margin-top: 20px; }
+
+/* Нижняя навигационная строка не пересекается с планетой и её кольцами. */
+body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-portal-label,
+.wv-hero:fullscreen:not([data-orbit-fallback]) .wv-portal-label {
+  top: auto; bottom: clamp(70px, 9vh, 106px); margin: 0; padding: 0 14px;
+  color: rgba(223, 239, 255, 0.86); background: none; font-size: 10px; letter-spacing: 2.5px;
+  text-shadow: 0 2px 8px #020712;
+}
+body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-portal-sub,
+.wv-hero:fullscreen:not([data-orbit-fallback]) .wv-portal-sub {
+  top: auto; bottom: clamp(44px, 6vh, 72px); margin: 0; padding: 0 10px;
+  color: rgba(185, 211, 238, 0.55); font: 450 9px var(--font-tech); letter-spacing: 0.2px;
+  white-space: normal; text-align: center;
+}
+body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-orbit-time,
+.wv-hero:fullscreen:not([data-orbit-fallback]) .wv-orbit-time {
+  top: auto; bottom: 17px; font: 500 10px var(--font-tech); letter-spacing: 1.2px;
+}
+body.wave-focus .wv-copy, .wv-hero:fullscreen .wv-copy {
+  max-height: calc(100vh - 100px); overflow-x: hidden; overflow-y: auto; scrollbar-width: thin;
+  scrollbar-color: rgba(155, 200, 239, 0.15) transparent;
+}
+@media (max-height: 780px) {
+  body.wave-focus .wv-focus-transport { margin-top: 16px; padding-top: 15px; }
+  body.wave-focus #wvNowSlot, .wv-hero:fullscreen #wvNowSlot { margin-top: 14px; }
+  .wv-focus-play-slot, body.wave-focus .wv-focus-play-slot .wv-play, .wv-hero:fullscreen .wv-focus-play-slot .wv-play { width: 62px; height: 62px; }
+}
+@media (max-width: 1100px) {
+  .wv-3d-stage { inset: -3% -5% -3%; }
+  body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-portal-sub,
+  .wv-hero:fullscreen:not([data-orbit-fallback]) .wv-portal-sub { font-size: 8px; }
+  .wv-focus-transport-copy b { font-size: 12px; }
+  .wv-focus-transport-copy span { font-size: 8px; }
+}
+body.reduce-motion .wv-3d-loader i { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .wv-3d-loader i { animation: none; }
+  .wv-3d-stage, .wv-3d-reset { transition: none; }
+}
+
+
+/* Командная панель погружения: крупная обложка и типографика текущего трека. */
+.wv-3d-canvas:focus-visible { outline: 1px solid color-mix(in srgb, var(--mood-a) 40%, transparent); outline-offset: -12px; border-radius: 20px; }
+body.wave-focus .wv-hero:not([data-orbit-fallback]), .wv-hero:fullscreen:not([data-orbit-fallback]) {
+  grid-template-columns: minmax(350px, .82fr) minmax(570px, 1.18fr);
+  padding: clamp(26px, 3vw, 50px);
+}
+body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-copy,
+.wv-hero:fullscreen:not([data-orbit-fallback]) .wv-copy {
+  align-self: stretch; width: min(100%, 470px); max-height: calc(100vh - 64px); padding: clamp(23px, 2.2vw, 34px);
+  display: flex; flex-direction: column; justify-content: center;
+}
+body.wave-focus .wv-title, .wv-hero:fullscreen .wv-title { margin: 14px 0; font-size: clamp(38px, 3.8vw, 62px); }
+body.wave-focus .wv-sub, .wv-hero:fullscreen .wv-sub { font-size: 12.5px; line-height: 1.55; }
+body.wave-focus .wv-mood-note, .wv-hero:fullscreen .wv-mood-note { margin-top: 13px; padding-top: 12px; font-size: 11px; line-height: 1.5; }
+body.wave-focus #wvNowSlot, .wv-hero:fullscreen #wvNowSlot { order: 3; margin-top: 20px; }
+body.wave-focus .wv-focus-transport, .wv-hero:fullscreen .wv-focus-transport { order: 5; margin-top: 17px; padding-top: 16px; }
+body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-now,
+.wv-hero:fullscreen:not([data-orbit-fallback]) .wv-now {
+  display: grid; grid-template-columns: minmax(0,1fr) 42px 42px; grid-template-areas: 'cover cover cover' 'meta like next';
+  gap: 12px 8px; width: 100%; padding: 12px; border-radius: 10px 26px 10px 26px;
+}
+body.wave-focus .wv-now img, .wv-hero:fullscreen .wv-now img {
+  grid-area: cover; width: 100%; height: clamp(165px, 26vh, 285px); border-radius: 7px 19px 7px 19px;
+  object-fit: cover; box-shadow: 0 12px 34px rgba(0,3,12,.32);
+}
+body.wave-focus .wv-now .nt, .wv-hero:fullscreen .wv-now .nt { grid-area: meta; align-self: center; padding: 2px 4px; }
+body.wave-focus .wv-now .nt::before, .wv-hero:fullscreen .wv-now .nt::before { margin-bottom: 7px; }
+body.wave-focus .wv-now .nt div, .wv-hero:fullscreen .wv-now .nt div { white-space: normal; overflow: visible; text-overflow: clip; font-size: clamp(17px, 1.5vw, 23px); line-height: 1.25; }
+body.wave-focus .wv-now .nt .a, .wv-hero:fullscreen .wv-now .nt .a { margin-top: 7px; font-size: 13px; line-height: 1.4; }
+body.wave-focus .wv-now > .like-btn, .wv-hero:fullscreen .wv-now > .like-btn { grid-area: like; }
+body.wave-focus .wv-now > .icon-btn:last-child, .wv-hero:fullscreen .wv-now > .icon-btn:last-child { grid-area: next; }
+.wv-world-guide { display: none; }
+body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-world-guide,
+.wv-hero:fullscreen:not([data-orbit-fallback]) .wv-world-guide {
+  order: 4; display: flex; align-items: center; gap: 11px; margin-top: 14px; padding: 10px 12px;
+  border: 1px solid rgba(170,211,244,.09); border-radius: 7px 16px 7px 16px; background: rgba(7,18,33,.25);
+}
+.wv-world-guide > .i { width: 19px; height: 19px; flex: none; color: var(--mood-a); }
+.wv-world-guide > span { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.wv-world-guide b { font: 550 11px var(--font-display); color: #dceeff; }
+.wv-world-guide small { color: var(--text-3); font-size: 9px; line-height: 1.35; }
+.wv-world-guide kbd { color: var(--text-3); font: 500 9px var(--font-tech); }
+@media (max-height: 800px) {
+  body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-copy, .wv-hero:fullscreen:not([data-orbit-fallback]) .wv-copy { justify-content: flex-start; padding: 22px 26px; }
+  body.wave-focus .wv-title, .wv-hero:fullscreen .wv-title { font-size: 38px; margin: 10px 0; }
+  body.wave-focus .wv-mood-note, .wv-hero:fullscreen .wv-mood-note { display: none; }
+  body.wave-focus .wv-now img, .wv-hero:fullscreen .wv-now img { height: clamp(145px, 25vh, 190px); }
+}
+@media (max-width: 1100px) {
+  body.wave-focus .wv-hero:not([data-orbit-fallback]), .wv-hero:fullscreen:not([data-orbit-fallback]) { grid-template-columns: minmax(300px,.8fr) minmax(0,1.2fr); padding: 24px; }
+  body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-copy, .wv-hero:fullscreen:not([data-orbit-fallback]) .wv-copy { padding: 23px; }
+}
+
+
+/* Компактная панель погружения: высота по содержимому, без пустых полей сверху и снизу. */
+body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-copy,
+.wv-hero:fullscreen:not([data-orbit-fallback]) .wv-copy {
+  align-self: center; justify-content: flex-start; height: auto; max-height: calc(100vh - 64px);
+}
+.wv-focus-volume { display: none; }
+body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-focus-volume,
+.wv-hero:fullscreen:not([data-orbit-fallback]) .wv-focus-volume {
+  order: 6; display: flex; align-items: center; gap: 11px; margin-top: 15px; padding: 9px 11px;
+  border: 1px solid rgba(170,211,244,.08); border-radius: 7px 15px 7px 15px; background: rgba(6,17,31,.25);
+}
+.wv-focus-volume .icon-btn { width: 28px; height: 28px; flex: none; color: var(--text-2); }
+.wv-focus-volume .icon-btn .i { width: 17px; height: 17px; }
+.wv-focus-volume .slider { flex: 1; width: auto; min-width: 70px; }
+.wv-focus-volume > span { width: 34px; flex: none; color: var(--text-3); font: 500 9px var(--font-tech); text-align: right; font-variant-numeric: tabular-nums; }
+body.wave-focus .wv-now .a .lnk, .wv-hero:fullscreen .wv-now .a .lnk { color: inherit; cursor: pointer; transition: color .2s ease; }
+body.wave-focus .wv-now .a .lnk:hover, .wv-hero:fullscreen .wv-now .a .lnk:hover { color: #f1f8ff; }
+@media (max-width: 1100px) {
+  body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-3d-stage,
+  .wv-hero:fullscreen:not([data-orbit-fallback]) .wv-3d-stage { inset: -7% -28% -5%; }
+}
+
+/* Даже если полноэкранный API недоступен, панель остаётся внутри высоты самой сцены. */
+body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-copy,
+.wv-hero:fullscreen:not([data-orbit-fallback]) .wv-copy { max-height: calc(100% - 32px); }
+
+
+/* Полоса времени текущего трека в командной панели. */
+.wv-focus-seek { display: none; }
+body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-focus-seek,
+.wv-hero:fullscreen:not([data-orbit-fallback]) .wv-focus-seek {
+  order: 7; display: flex; align-items: center; gap: 9px; margin-top: 12px; padding: 0 5px;
+}
+.wv-focus-seek > span { width: 31px; flex: none; color: var(--text-3); font: 500 9px var(--font-tech); font-variant-numeric: tabular-nums; }
+.wv-focus-seek > span:last-child { text-align: right; }
+.wv-focus-seek .slider { flex: 1; width: auto; min-width: 70px; }
+body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-now img,
+.wv-hero:fullscreen:not([data-orbit-fallback]) .wv-now img { height: clamp(150px, 23vh, 255px); }
+
+
+/* Нижняя информация выровнена по левой панели, а не по центру планеты. */
+.wv-focus-footer { display: none; }
+body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-focus-footer,
+.wv-hero:fullscreen:not([data-orbit-fallback]) .wv-focus-footer {
+  position: absolute !important; left: clamp(26px, 3vw, 50px); bottom: 12px; z-index: 6;
+  width: min(470px, 36vw); display: grid; justify-items: center; gap: 4px; pointer-events: none; text-align: center;
+}
+.wv-focus-footer .wv-portal-label, .wv-focus-footer .wv-portal-sub, .wv-focus-footer .wv-orbit-time {
+  position: static !important; inset: auto !important; margin: 0 !important;
+}
+.wv-focus-footer .wv-orbit-time { margin-top: 3px !important; }
+body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-copy,
+.wv-hero:fullscreen:not([data-orbit-fallback]) .wv-copy { max-height: calc(100% - 170px); }
+body.wave-focus .wv-hero[data-orbit-fallback] .wv-focus-footer {
+  position: absolute !important; right: 36px; bottom: 22px; width: 42%; display: grid; justify-items: center; gap: 4px;
+}
+body.wave-focus .wv-hero[data-orbit-fallback] .wv-focus-footer > * { position: static !important; inset: auto !important; margin: 0 !important; }
+@media (max-width: 1100px) {
+  body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-focus-footer,
+  .wv-hero:fullscreen:not([data-orbit-fallback]) .wv-focus-footer { left: 24px; width: 300px; }
+}
+
+/* Canvas монтируется непосредственно в hero. Его единственные видимые границы —
+   реальные границы сцены; панель и подписи остаются отдельными верхними слоями. */
+body.wave-focus .wv-hero:not([data-orbit-fallback]) .wv-3d-stage,
+.wv-hero:fullscreen:not([data-orbit-fallback]) .wv-3d-stage { inset: 0; }

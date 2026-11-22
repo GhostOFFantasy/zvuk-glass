@@ -23,7 +23,7 @@
   // preset: id готового пресета, 'custom' («Свой») или 'u:…' (сохранённый пользователем).
   // custom — последние ручные настройки, user — свои пресеты с названиями. Ничего из этого не теряется
   // при переключении на готовые пресеты.
-  const DEFAULT_EQ = { enabled: false, preset: 'flat', bands: PRESETS.flat.bands.slice(), preamp: 0, compressor: false, custom: null, user: [] };
+  const DEFAULT_EQ = { enabled: false, locked: false, preset: 'flat', bands: PRESETS.flat.bands.slice(), preamp: 0, compressor: false, custom: null, user: [] };
   const isUser = (id) => typeof id === 'string' && id.startsWith('u:');
   const MAX_USER = 30;
   const dbToGain = (db) => Math.pow(10, db / 20);
@@ -68,7 +68,7 @@
         this.comp.release.value = 0.22;
         this.post = c.createGain();
         this.analyser = c.createAnalyser();
-        this.analyser.fftSize = 4096;
+        this.analyser.fftSize = 2048;
         this.analyser.smoothingTimeConstant = 0.78;
         this.vol = c.createGain();
 
@@ -117,12 +117,18 @@
       this.eq.enabled = Boolean(v);
       this._changed();
     },
+    setLocked(v) {
+      this.eq.locked = Boolean(v);
+      this._changed();
+    },
     userPreset(id) {
       return (this.eq.user || []).find((p) => p.id === id) || null;
     },
-    /** Название пресета для подписей: готовый, «Свой» или своё название. */
+    /** Название пресета для подписей: готовый, наушники, «Свой» или своё название. */
     presetName(id = this.eq.preset) {
       if (PRESETS[id]) return PRESETS[id].name;
+      const hp = window.HeadphoneEQ?.get(id);
+      if (hp) return `${hp.model} · ${hp.name}`;
       if (isUser(id)) return this.userPreset(id)?.name || 'Свой';
       return 'Свой';
     },
@@ -152,7 +158,11 @@
     setPreset(id) {
       let bands;
       let preamp;
-      if (PRESETS[id]) {
+      const hp = window.HeadphoneEQ?.get(id);
+      if (hp) {
+        bands = hp.bands;
+        preamp = hp.preamp;
+      } else if (PRESETS[id]) {
         bands = PRESETS[id].bands;
         // Чтобы не было перегруза, при подъёме частот немного снижаем общий уровень
         preamp = -Math.round(Math.max(0, ...bands) * 0.6 * 2) / 2;

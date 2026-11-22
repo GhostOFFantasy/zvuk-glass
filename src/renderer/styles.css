@@ -377,10 +377,12 @@ body.liquid-on .liquid {
 .pl-cover:hover { transform: scale(1.05) rotate(-1deg); }
 .pl-cover img { width: 100%; height: 100%; object-fit: cover; }
 .pl-cover img:not([src]), .pl-cover img[src=''] { visibility: hidden; }
-.pl-meta { min-width: 0; }
-.pl-title { font-weight: 650; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pl-artist { color: var(--text-2); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pl-title .lnk, .pl-artist .lnk { cursor: pointer; }
+.pl-meta { flex: 1; min-width: 0; overflow: hidden; }
+.pl-title, .pl-artist { display: block; width: 100%; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-title { font-weight: 650; font-size: 14.5px; }
+.pl-artist { color: var(--text-2); font-size: 13px; }
+.pl-title .lnk, .pl-artist .lnk { display: inline; cursor: pointer; }
+.pl-left .like-btn { flex: none; }
 .pl-title .lnk:hover, .pl-artist .lnk:hover { text-decoration: underline; }
 .pl-center { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
 .pl-controls { display: flex; align-items: center; gap: 10px; }
@@ -688,19 +690,19 @@ body.np-open #app, body.np-open #bg { visibility: hidden; }
   transition: transform 0.75s var(--ease), opacity 0.5s ease, width 0.6s var(--ease), height 0.6s var(--ease), margin 0.6s var(--ease);
 }
 .cf-card {
-  position: absolute; inset: 0;
+  position: absolute; inset: 0; transform-style: preserve-3d;
   transform: translateZ(var(--hz, 0px)) rotateY(var(--hry, 0deg)) scale(var(--hs, 1)) scale(var(--sc, 1));
   transition: transform 0.6s var(--spring);
 }
 .cf-tilt {
-  position: absolute; inset: 0; overflow: hidden; border-radius: calc(var(--radius) + 6px);
-  background: var(--glass-2);
+  position: absolute; inset: 0; overflow: visible; border-radius: calc(var(--radius) + 6px);
   box-shadow: 0 30px 70px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.14);
   transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
   transition: transform 0.14s ease-out, box-shadow 0.4s ease;
 }
+.cf-art { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; background: var(--glass-2); }
 .cf-item:not(.hover) .cf-tilt { transition: transform 0.6s var(--spring), box-shadow 0.4s ease; }
-.cf-tilt img { position: absolute; inset: -4%; width: 108%; height: 108%; object-fit: cover; display: block; transform: translate(var(--px, 0px), var(--py, 0px)); transition: transform 0.2s ease-out; }
+.cf-art img { position: absolute; inset: -4%; width: 108%; height: 108%; object-fit: cover; display: block; transform: translate(var(--px, 0px), var(--py, 0px)); transition: transform 0.2s ease-out; }
 .cf-dim { position: absolute; inset: 0; background: #000; opacity: 0; transition: opacity 0.45s ease; pointer-events: none; }
 .cf-item.side .cf-dim { opacity: 0.38; }
 .cf-item.side.hover .cf-dim { opacity: 0; }
@@ -714,6 +716,7 @@ body.paused .cf-item.cur { --sc: 0.93; }
 /* Подпись соседних треков: выезжает и оживает при наведении */
 .cf-label {
   position: absolute; left: 0; right: 0; bottom: 0; padding: 64px 18px 16px; text-align: left;
+  border-radius: 0 0 calc(var(--radius) + 6px) calc(var(--radius) + 6px);
   background: linear-gradient(transparent, rgba(0, 0, 0, 0.5) 40%, rgba(0, 0, 0, 0.84));
   font: 700 19px/1.2 var(--font-display);
   opacity: 0; transform: translateY(10px); transition: opacity 0.4s ease, transform 0.5s var(--ease);
@@ -782,7 +785,7 @@ body:not(.paused) .cf-play .pp-play { display: none; }
 
 /* Режим текста: карусель уходит влево, справа появляется текст */
 .np.lyrics-on { --cf: min(40vh, 26vw, 420px); }
-.np.lyrics-on .np-stage { transform: translateX(-22vw); }
+.np.lyrics-on .np-stage { transform: translateX(-13vw); }
 .np.lyrics-on .cf-item.side, .np.viz-on .cf-item.side { opacity: 0 !important; pointer-events: none; }
 .np-lyrics {
   position: absolute; top: 60px; bottom: 30px; right: 5vw; width: 42vw; z-index: 2;
@@ -920,28 +923,28 @@ body:not(.bg-mode-cover) .bg-art { opacity: 0 !important; }
 body.bg-mode-image .blob, body.bg-mode-video .blob { opacity: 0.22 !important; }
 body.no-blobs .blob { display: none; }
 .bg-dim { position: absolute; inset: 0; background: rgba(0, 0, 0, var(--bg-dim)); transition: background 0.4s; }
-/* ---------- «Чернила» над клипом (ink.js): --ink 0 — светлый интерфейс, 1 — тёмный ----------
-   --ink-dark непрерывно меняется от графита до чёрного вместе с силой засвета.
-   При --ink: 0 внешний вид остаётся прежним. */
+/* «Чернила» над клипом (ink.js): --ink 0 — светлый интерфейс, 1 — тёмный.
+   Цвет текста цельный, без фоновой карты. Тонкая обводка сохраняет читаемость во время плавного перехода.
+   Переключение происходит только при реальной потере контраста, с гистерезисом и паузой между сменами. */
 @property --ink { syntax: '<number>'; inherits: true; initial-value: 0; }
 @property --bgl { syntax: '<number>'; inherits: true; initial-value: 0.3; }
 .inkable {
-  --ink-fg: color-mix(in srgb, var(--ink-dark, #2f343e) calc(var(--ink) * 100%), #f5f5f7);
+  --ink-fg: color-mix(in srgb, var(--ink-dark, #2f343e) calc(var(--ink) * 100%), #f1f6ff);
   --text: var(--ink-fg);
   --text-2: color-mix(in srgb, var(--ink-fg) calc(70% + var(--ink) * 22%), transparent);
   --text-3: color-mix(in srgb, var(--ink-fg) calc(46% + var(--ink) * 36%), transparent);
-  /* подложка кнопок: над светлым кадром — светлое матовое стекло, тёмное на нём читается лучше всего */
   --ink-wash: color-mix(in srgb, rgba(255, 255, 255, 0.46) calc(var(--ink) * 100%), rgba(255, 255, 255, 0.08));
   --ink-line: color-mix(in srgb, rgba(255, 255, 255, 0.6) calc(var(--ink) * 100%), rgba(255, 255, 255, 0.1));
-  /* Контур поддерживает читаемость, но не размывает адаптивный тёмный оттенок. */
-  --ink-halo: color-mix(in srgb, rgba(255, 255, 255, 0.68) calc(var(--ink) * 100%), rgba(0, 0, 0, calc(0.2 + var(--bgl) * 0.6)));
-  --ink-edge: color-mix(in srgb, rgba(255, 255, 255, 0.72) calc(var(--ink) * 100%), rgba(0, 0, 0, calc(var(--bgl) * 0.35)));
-  text-shadow: 0 0 1.5px var(--ink-edge), 0 0 1.5px var(--ink-edge), 0 1px 12px var(--ink-halo);
+  --ink-halo: color-mix(in srgb, transparent calc(var(--ink) * 100%), rgba(0, 0, 0, calc(0.2 + var(--bgl) * 0.6)));
+  --ink-edge: color-mix(in srgb, transparent calc(var(--ink) * 100%), rgba(2, 7, 16, 0.52));
+  text-shadow: 0 0 1px var(--ink-edge), 0 1px 10px var(--ink-halo);
 }
-/* «Вода»: двумерная карта цвета обрезается по форме каждой буквы, а не всего блока текста. */
-.water-ink { color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important; background-repeat: no-repeat !important; background-origin: border-box !important; background-clip: text !important; -webkit-background-clip: text !important; }
-.np-title.inkable, .vz-t1.inkable { color: var(--text); }
-.vz-t1.inkable, .vz-t2.inkable { text-shadow: 0 0 1.5px var(--ink-edge), 0 0 1.5px var(--ink-edge), 0 2px 16px var(--ink-halo); }
+.ink-text {
+  background: none !important; color: var(--ink-fg) !important; -webkit-text-fill-color: currentColor !important;
+  -webkit-text-stroke: 0.35px var(--ink-edge); paint-order: stroke fill;
+  text-shadow: 0 1px 10px var(--ink-halo) !important;
+}
+.np-title.ink-text, .vz-t1.ink-text { -webkit-text-stroke-width: 0.45px; }
 .inkable .i svg, .icon-btn.inkable .i svg {
   filter: drop-shadow(0 0 1px color-mix(in srgb, rgba(255, 255, 255, 0.72) calc(var(--ink) * 100%), transparent)) drop-shadow(0 1px 6px color-mix(in srgb, rgba(255, 255, 255, 0.5) calc(var(--ink) * 100%), transparent));
 }
@@ -1240,7 +1243,7 @@ body.compact-sidebar .side-playlists .muted { display: none; }
 .sidebar.sec-lib-off .sec-toggle[data-sec="lib"] .i, .sidebar.sec-pl-off .sec-toggle[data-sec="pl"] .i { transform: rotate(-90deg); }
 .sec-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 0.45s var(--ease), opacity 0.35s ease; }
 .sec-body > .nav { min-height: 0; overflow: hidden; }
-.sidebar.sec-lib-off .sec-body { grid-template-rows: 0fr; opacity: 0; pointer-events: none; }
+.sidebar.sec-lib-off .sec-body[data-sec-body="lib"] { grid-template-rows: 0fr; opacity: 0; pointer-events: none; }
 .side-playlists { transition: flex-grow 0.45s var(--ease), opacity 0.35s ease; }
 .sidebar.sec-pl-off .side-playlists { flex-grow: 0.0001; opacity: 0; pointer-events: none; overflow: hidden; }
 body.compact-sidebar .sec-toggle { display: none; }
@@ -1627,3 +1630,26 @@ body.sb-anim .sidebar { position: fixed; z-index: 25; margin: 0; }
 .np-flow { transition: opacity 0.6s ease; }
 .np.viz-on:has(.clip-box.clip-on) .np-flow { opacity: 0; pointer-events: none; }
 .np.viz-on:has(.clip-box.clip-on) .cf-item { pointer-events: none; }
+
+
+/* Плеер почти непрозрачен: SVG-деформация фона под ним не даёт видимого преимущества,
+   но требует постоянной перерисовки. Сама стеклянная панель, градиенты и мини-визуализатор остаются. */
+body.liquid-on #player.liquid,
+body.bd-on #player { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+
+/* Экономичный режим сохраняет цвета и стекло, но останавливает декоративное движение фона. */
+body.waapi-blobs .blob,
+body.reduce-motion .blob,
+body.perf-eco .blob,
+body.perf-eco .wv-aurora i { animation: none !important; }
+@media (prefers-reduced-motion: reduce) { .blob { animation: none !important; } }
+
+/* Переключатель общей производительности в настройках. */
+.perf-modes { flex-wrap: wrap; justify-content: flex-end; max-width: 430px; }
+.perf-modes button { padding-inline: 12px; font-size: 11px; }
+@media (max-width: 850px) { .perf-modes { justify-content: flex-start; max-width: none; } }
+
+
+/* Виртуальные списки сохраняют точную высоту и размеры строк; пустых областей в viewport нет. */
+.tracks.virtualized { display: block; position: relative; contain: layout style; }
+.tracks.virtualized > .tr { position: absolute; left: 0; right: 0; content-visibility: visible; }

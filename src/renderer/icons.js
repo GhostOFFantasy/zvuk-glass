@@ -8,6 +8,7 @@
   const ICONS = {
     home: S('<path d="M3.5 10.5 12 3.8l8.5 6.7V19a1.8 1.8 0 0 1-1.8 1.8H15v-6h-6v6H5.3A1.8 1.8 0 0 1 3.5 19z"/>'),
     wave: S('<path pathLength="100" d="M2.5 12c1.6 0 1.6-5 3.2-5s1.6 10 3.2 10 1.6-14 3.1-14 1.6 18 3.2 18 1.6-10 3.2-10 1.6 1 3.1 1"/>'),
+    pulse: S('<circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/><path d="M12 1.8v3M12 19.2v3M1.8 12h3M19.2 12h3"/>'),
     viz: S('<rect class="vb" x="3" y="10" width="3" height="10" rx="1.2"/><rect class="vb" x="8.5" y="5" width="3" height="15" rx="1.2"/><rect class="vb" x="14" y="8" width="3" height="12" rx="1.2"/><rect class="vb" x="19.5" y="12" width="2.5" height="8" rx="1.2"/>'),
     eq: S('<path d="M6 4v16M12 4v16M18 4v16"/><circle class="k1" cx="6" cy="14" r="2.2" fill="currentColor"/><circle class="k2" cx="12" cy="8" r="2.2" fill="currentColor"/><circle class="k3" cx="18" cy="12" r="2.2" fill="currentColor"/>'),
     image: S('<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><circle cx="9" cy="10" r="1.8"/><path d="m20.5 16-4.5-4.5L7 19.5"/>'),
@@ -61,6 +62,8 @@
     link: S('<path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1.2 1.2"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1.2-1.2"/>'),
     logout: S('<path d="M14.5 4.5h3a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-3M9.5 16.5 5 12l4.5-4.5M5 12h11"/>'),
     check: S('<path d="m5 12.5 4.5 4.5L19 7.5"/>'),
+    lock: S('<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>'),
+    unlock: S('<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 7.5-2"/>'),
     note: S('<path d="M9 18V5.5l11-2v12.5"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>'),
     sparkle: S('<path d="M12 3.5c.6 4.2 2.3 5.9 6.5 6.5-4.2.6-5.9 2.3-6.5 6.5-.6-4.2-2.3-5.9-6.5-6.5 4.2-.6 5.9-2.3 6.5-6.5z"/><path d="M19 15.5c.3 1.8 1 2.5 2.5 2.8-1.5.3-2.2 1-2.5 2.7-.3-1.7-1-2.4-2.5-2.7 1.5-.3 2.2-1 2.5-2.8z"/>'),
     user: S('<circle cx="12" cy="8" r="4"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/>'),

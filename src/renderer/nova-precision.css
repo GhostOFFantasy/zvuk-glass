@@ -1,0 +1,121 @@
+/* Точечные исправления: геометрия кнопок, выравнивание и басовый пульс кадра. */
+body.theme-orbit .card.round .play-orb { right: 15%; bottom: 15%; }
+.nova-player-btn { display: grid; place-items: center; padding: 0; }
+.nova-player-btn > img { position: absolute; inset: 0; display: block; width: 37px; height: 42px; margin: auto; object-fit: cover; object-position: center 8%; }
+
+/* Скругление именно внешней боковой панели; прокрутка остаётся внутренней. */
+body.theme-orbit .sidebar { overflow: hidden; border: 1px solid var(--orbit-line,rgba(205,211,235,.1)); border-radius: 22px; background: rgba(14,19,27,.82); }
+
+/* Одинаковая ширина колонок, значение ровно между кнопками. */
+.vz-controls .vz-offset { grid-template-columns: repeat(3,minmax(0,1fr)); align-items: center; }
+.vz-controls .vz-offset > span { text-align: center; }
+.vz-controls .vz-offset > b { display: grid; place-items: center; min-width: 0; text-align: center; font-variant-numeric: tabular-nums; }
+.vz-controls .vz-offset > button { justify-self: stretch; }
+
+/* «Пульс кадра» масштабирует только целевую обложку или клип из nova-refinement.css. */
+.vz-stage .vz-canvas { transform-origin: 50% 50%; }
+
+/* Наклоняется обложка, а не вся карточка: подпись не смещается и не искажается. */
+body:not(.design-classic) .cf-item .cf-tilt {
+  transform: rotateZ(var(--satellite-tilt,0deg)) rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg));
+}
+body:not(.design-classic) .cf-item.side .cf-label {
+  width: calc(var(--cf) * var(--satellite-scale,.34));
+  margin-left: calc(var(--cf) * var(--satellite-scale,.34) * -.5);
+  padding: 5px 2px 0;
+  transform: scale(var(--label-scale,1)); transform-origin: 50% 0;
+  border: 0; border-radius: 0; background: none; box-shadow: none;
+  text-shadow: 0 1px 4px rgba(0,0,0,.95), 0 0 12px rgba(0,0,0,.8);
+}
+body:not(.design-classic) .cf-item.side.hover .cf-label {
+  border-color: transparent; background: none; box-shadow: none;
+}
+body:not(.design-classic) .cf-item.side .cf-label .tag { margin-bottom: 4px; font-size: 7px; letter-spacing: 1.1px; }
+body:not(.design-classic) .cf-item.side .cf-label .ttl { font-size: 12px; font-weight: 550; line-height: 1.3; }
+body:not(.design-classic) .cf-item.side .cf-label small { margin-top: 3px; font-size: 9px; font-weight: 450; }
+
+/* Центрируем орбиту в правой половине, а не прижимаем её к правому краю. */
+body.theme-orbit .home-wave { grid-template-columns: minmax(0,1fr) minmax(360px,1fr); }
+@media (max-width: 1000px) {
+  body.theme-orbit .home-wave { grid-template-columns: minmax(0,1fr) minmax(280px,.9fr); }
+}
+body.theme-orbit #app:has(.side-panel.open) .home-wave { grid-template-columns: minmax(0,1fr) minmax(260px,.9fr); }
+
+/* Утверждённая лунная Нова: полный арт в панели и крупная аватарка в плеере. */
+.nova-player-btn { background: #080f24; box-shadow: inset 0 0 0 1px rgba(163,200,255,.2); }
+.nova-player-btn > img { inset: 0; width: 100%; height: 100%; margin: 0; object-fit: cover; object-position: center; }
+.nv-intro { min-height: 366px; padding: 2px 0 0; }
+.nv-intro-top { margin: 0 4px; }
+.nv-portrait { top: 34px; width: 100%; height: 300px; overflow: hidden; border-radius: 18px; background: #050b1c; box-shadow: inset 0 0 0 1px rgba(168,203,255,.14),0 14px 34px rgba(0,0,0,.24); }
+.nv-portrait img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center top; }
+.nv-halo { display: none; }
+.nv-message { left: 7px; right: 7px; background: rgba(8,15,30,.92); box-shadow: inset 0 0 0 1px rgba(168,203,255,.15),0 8px 22px rgba(0,0,0,.26); backdrop-filter: blur(12px); }
+.nv-scan { left: 20px; right: 20px; top: 40px; }
+.nv-heart { top: 48px; right: 16px; }
+
+/* Орбита занимает свободную правую сцену, а не узкую grid-колонку. */
+body.theme-orbit .home-orbit-stage { position: absolute; inset: 45px 6px 53px 43%; margin: 0; padding: 0; overflow: visible; }
+.home-orbital-map { inset: 0; }
+.home-orbit-line, body.theme-orbit .home-wave-play { left: 50%; top: 46%; }
+.home-orbit-line.l1 { width: 96%; height: 49%; }
+.home-orbit-line.l2 { width: 66%; height: 85%; }
+.home-orbit-line.l3 { width: 112%; height: 29%; }
+body.theme-orbit:not(.wave-focus) .orbit-observatory .wv-portal {
+  position: absolute; inset: 64px 8px 48px 42%; margin: 0; padding: 0;
+  width: auto; height: auto; border: 0; background: transparent;
+}
+body.theme-orbit:not(.wave-focus) .orbit-observatory .wv-orbital-map { inset: 0; }
+body.theme-orbit:not(.wave-focus) .orbit-observatory .wv-orbit-line,
+body.theme-orbit:not(.wave-focus) .orbit-observatory .wv-portal .wv-play { left: 50%; top: 46%; }
+body.theme-orbit:not(.wave-focus) .orbit-observatory .wv-orbit-line.l1 { width: 92%; height: 45%; }
+body.theme-orbit:not(.wave-focus) .orbit-observatory .wv-orbit-line.l2 { width: 64%; height: 78%; }
+body.theme-orbit:not(.wave-focus) .orbit-observatory .wv-orbit-line.l3 { width: 108%; height: 27%; }
+body.theme-orbit:not(.wave-focus) .orbit-observatory .wv-instrument-action { bottom: 3%; }
+@media (max-width: 1000px) {
+  body.theme-orbit .home-orbit-stage { left: 47%; }
+  body.theme-orbit:not(.wave-focus) .orbit-observatory .wv-portal { left: 46%; }
+}
+
+
+/* Интерактивный 2D-риг; PNG/WebP и локальный ролик остаются резервными режимами. */
+.nova-motion { position: relative; display: block; overflow: hidden; isolation: isolate; }
+.nova-motion > img,.nova-motion > video,.nova-motion > .nova-rig-canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; object-position: center top; }
+.nova-motion > img { z-index: 1; }
+.nova-motion > video,.nova-motion > .nova-rig-canvas { z-index: 2; background: transparent; }
+.nova-motion > .nova-rig-canvas { visibility: hidden; pointer-events: none; }
+.nova-motion[data-rig-state="ready"] > .nova-rig-canvas { visibility: visible; }
+.nova-motion[data-rig-state="ready"] > img,.nova-motion[data-rig-state="ready"] > video { visibility: hidden; }
+.nova-motion::after { content: ''; position: absolute; z-index: 3; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 45%,var(--nova-style-glow,rgba(168,217,245,.3)),transparent 72%); mix-blend-mode: screen; opacity: .16; }
+.nova-motion[data-video-state="error"] > video { display: none; }
+.nv-portrait > .nova-motion { width: 100%; height: 100%; border-radius: inherit; }
+.nova-player-btn > .nova-motion { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; border-radius: inherit; }
+.nova-context-avatar > .nova-motion { width: 64px; height: 64px; max-width: none; transform: translate(-7px,-2px); }
+.nova-context-avatar .nova-motion > img,.nova-context-avatar .nova-motion > video { object-fit: contain; }
+body[data-nova-style="lunar"] { --nova-style-glow: rgba(168,217,245,.34); }
+body[data-nova-style="signal"] { --nova-style-glow: rgba(172,232,208,.42); }
+body[data-nova-style="neon"] { --nova-style-glow: rgba(188,178,244,.5); }
+body[data-nova-style="impulse"] { --nova-style-glow: rgba(242,207,139,.45); }
+body[data-nova-style="resonance"] { --nova-style-glow: rgba(243,184,207,.45); }
+body[data-nova-style="eclipse"] { --nova-style-glow: rgba(233,230,255,.54); }
+body[data-nova-style="signal"] .nova-motion { box-shadow: inset 0 0 0 1px rgba(172,232,208,.2),0 0 24px rgba(172,232,208,.07); }
+body[data-nova-style="neon"] .nova-motion { box-shadow: inset 0 0 0 1px rgba(188,178,244,.24),0 0 28px rgba(188,178,244,.09); }
+body[data-nova-style="impulse"] .nova-motion { box-shadow: inset 0 0 0 1px rgba(242,207,139,.24),0 0 26px rgba(242,207,139,.08); }
+body[data-nova-style="resonance"] .nova-motion { box-shadow: inset 0 0 0 1px rgba(243,184,207,.23),0 0 28px rgba(243,184,207,.08); }
+body[data-nova-style="eclipse"] .nova-motion { box-shadow: inset 0 0 0 1px rgba(233,230,255,.28),0 0 30px rgba(188,178,244,.12); }
+body.reduce-motion .nova-motion > video,body.reduce-motion .nova-motion > .nova-rig-canvas { visibility: hidden; }
+body.reduce-motion .nova-motion > img { visibility: visible; }
+@media (prefers-reduced-motion:reduce) {
+  .nova-motion > video,.nova-motion > .nova-rig-canvas { visibility: hidden; }
+  .nova-motion > img { visibility: visible; }
+}
+
+body.theme-orbit .home-orbit-stage,body.theme-orbit:not(.wave-focus) .orbit-observatory .wv-portal { min-width: 0; min-height: 0; }
+body.theme-orbit .home-orbit-stage .home-wave-play { right: auto; margin: 0; transform: translate(-50%,-50%); }
+body.theme-orbit .home-orbit-stage .home-wave-play:hover { transform: translate(-50%,-50%) scale(1.045); }
+body.theme-orbit .home-orbit-stage .home-wave-play:active { transform: translate(-50%,-50%) scale(.97); }
+body.theme-orbit:not(.wave-focus) .orbit-observatory .wv-portal .wv-play { right: auto; margin: 0; transform: translate(-50%,-50%); }
+body.theme-orbit #app:has(.side-panel.open) .home-orbit-stage { inset: 45px 6px 53px 43%; }
+body.theme-orbit #app:has(.side-panel.open) .home-orbit-stage .home-wave-play { top: 46%; left: 50%; right: auto; }
+
+/* Движение создают видеокадры, а не прежнее покачивание всего портрета. */
+.nova-playing .nv-portrait,.nova-playing .nv-portrait img,.nova-syncing .nv-portrait img { animation: none; }
