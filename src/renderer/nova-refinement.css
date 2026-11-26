@@ -184,3 +184,117 @@ body:not(.design-classic) .wv-genres .chip { border-radius:11px; }
   .pulse-controls, .pulse-controls:has(button[data-lane="4"]) { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   .pulse-controls .pulse-pause { grid-column: 1 / -1; }
 }
+
+/* Полноэкранная орбитальная очередь: 13 визуальных позиций над списком любой длины. */
+body:not(.design-classic) .np { --cf: min(37vh, 26vw, 420px); }
+body:not(.design-classic) .np.lyrics-on,
+body:not(.design-classic) .np.viz-on { --cf: min(32vh, 24vw, 360px); }
+body:not(.design-classic) .np-flow {
+  height: calc(var(--cf) * 1.3);
+  perspective: 1800px;
+}
+body:not(.design-classic) .cf-item {
+  top: 60%;
+  transition: transform .72s cubic-bezier(.22,.75,.2,1), opacity .48s ease,
+    width .6s var(--ease), height .6s var(--ease), margin .6s var(--ease);
+}
+body:not(.design-classic) .cf-item .cf-tilt {
+  transform: rotateZ(var(--satellite-tilt,0deg)) rotateY(var(--orbit-ry,0deg))
+    rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg));
+}
+body:not(.design-classic) .np-flow::before {
+  top: 60%; width: var(--ring-width, calc(var(--cf) * 3.44)); height: var(--cf);
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, transparent);
+  border-top-color: color-mix(in srgb, var(--accent) 14%, transparent);
+  transform: translate(-50%,-40%); animation: none; opacity: .82;
+  box-shadow: 0 0 16px color-mix(in srgb, var(--accent) 13%, transparent),
+    inset 0 0 16px color-mix(in srgb, var(--accent) 5%, transparent);
+  will-change: auto;
+}
+body:not(.design-classic) .np-flow::after {
+  bottom: 2%; width: calc(var(--cf) * 2.4); height: calc(var(--cf) * .2); opacity: .32;
+}
+body:not(.design-classic) .cf-item.side.far .cf-dim { opacity: .46; }
+body:not(.design-classic) .cf-item.recycling .cf-art { filter: blur(4px); transition: filter .5s ease; }
+body:not(.design-classic) .cf-item.materializing .cf-art { animation: ringMaterialize .72s ease; }
+@keyframes ringMaterialize { from { filter: blur(5px) brightness(1.45); } to { filter: none; } }
+.np-queue-count {
+  position: absolute; top: 56px; right: 26px; z-index: 3; display: flex; align-items: center; gap: 7px;
+  max-width: calc(100vw - 52px); padding: 7px 11px; box-sizing: border-box; border-radius: 999px;
+  color: var(--text-2); background: rgba(10,16,25,.42); box-shadow: inset 0 0 0 1px rgba(205,229,240,.08);
+  font: 550 10px var(--font); letter-spacing: .25px; white-space: nowrap; pointer-events: none;
+}
+.np-queue-count:empty, body.design-classic .np-queue-count { display: none; }
+.np.viz-on .np-queue-count { right: 78px; }
+.np.lyrics-on .np-flow::before, .np.viz-on .np-flow::before { opacity: 0; }
+@media (max-width: 900px) {
+  body:not(.design-classic) .np { --cf: min(37vh, 30vw, 360px); }
+  .np-queue-count { top: 52px; right: 18px; padding: 6px 9px; font-size: 9px; }
+}
+@media (max-height: 790px) {
+  body:not(.design-classic) .np { --cf: min(34vh, 26vw, 340px); }
+  body:not(.design-classic) .np.lyrics-on,
+  body:not(.design-classic) .np.viz-on { --cf: min(30vh, 24vw, 320px); }
+}
+body.reduce-motion .np .cf-item.materializing .cf-art { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .np .cf-item { transition-duration: .001ms !important; }
+  .np .cf-item.materializing .cf-art { animation: none; }
+}
+
+/* Чистая спираль в верхних панелях: сцена без карточек и старой орбитальной карты. */
+.home-wave.gravity-orbit .home-orbital-map,
+.wv-hero.gravity-orbit .wv-orbital-map { opacity: 0; visibility: hidden; }
+.home-wave.gravity-orbit .home-wave-cosmos,
+body.theme-orbit:not(.wave-focus) .orbit-observatory.gravity-orbit .wv-cosmos { opacity: 1; }
+.home-wave.gravity-orbit .home-scope-caption,
+body:not(.wave-focus) .wv-hero.gravity-orbit .wv-instrument-action,
+body:not(.wave-focus) .wv-hero.gravity-orbit .wv-focus-footer { display: none; }
+.wv-hero.gravity-orbit .wv-ring-seek { display: none; }
+body.theme-orbit .home-wave.gravity-orbit .home-wave-play,
+body.theme-orbit:not(.wave-focus) .wv-hero.gravity-orbit .wv-portal .wv-play {
+  border-radius: 50%; color: var(--nova-mint); border: 1px solid rgba(172,232,208,.32);
+  background: radial-gradient(circle at 38% 30%, rgba(172,232,208,.1), transparent 58%), rgba(7,17,24,.88);
+  box-shadow: 0 0 0 10px rgba(172,232,208,.025), 0 0 48px rgba(172,232,208,.12), inset 0 1px 0 rgba(255,255,255,.1);
+}
+body.theme-orbit .home-wave.gravity-orbit .home-wave-play::before,
+body.theme-orbit:not(.wave-focus) .wv-hero.gravity-orbit .wv-portal .wv-play::before {
+  display: block; inset: -12px; border-color: rgba(172,232,208,.14); border-top-color: rgba(188,178,244,.42); animation: none;
+}
+body.theme-orbit .home-wave.gravity-orbit .home-wave-play > .i,
+body.theme-orbit .home-wave.gravity-orbit .home-wave-play.playing > .i,
+body.theme-orbit:not(.wave-focus) .wv-hero.gravity-orbit .wv-portal .wv-play > .i {
+  color: var(--nova-mint); filter: none;
+}
+
+/* Источник трека центрируется по окну, а не по асимметричной области у кнопок. */
+body .np .np-source { left: 154px; right: 154px; }
+@media (max-width: 640px) { body .np .np-source { left: 120px; right: 120px; } }
+
+/* Активная обложка: магнитное движение, масштаб и свет без дублирующей кнопки. */
+.cf-item.cur .cf-card {
+  transform: translate3d(var(--mx,0px), var(--my,0px), var(--hz,0px))
+    rotateY(var(--hry,0deg)) scale(var(--hs,1)) scale(var(--sc,1));
+}
+.cf-item.cur .cf-art img {
+  transform: translate(var(--px,0px), var(--py,0px)) scale(var(--art-scale,1));
+  transition: transform .18s ease-out;
+}
+.cf-item.cur.hover .cf-art img { will-change: transform; }
+.cf-item.cur .cf-shine {
+  background:
+    radial-gradient(circle at var(--sx,50%) var(--sy,50%), rgba(255,255,255,.46), transparent 27%),
+    radial-gradient(ellipse at var(--sx,50%) var(--sy,50%), color-mix(in srgb, var(--accent) 20%, transparent), transparent 62%);
+  mix-blend-mode: screen; opacity: 0; transition: opacity .35s ease;
+}
+.cf-item.cur.hover .cf-shine { opacity: .76; }
+.cf-item.cur.hover .cf-dim { opacity: .06; }
+.cf-item.cur.hover .cf-tilt {
+  box-shadow: 0 42px 100px rgba(0,0,0,.52), 0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent),
+    0 0 65px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+body.reduce-motion .cf-item.cur .cf-art img { transition: none; }
+@media (prefers-reduced-motion: reduce) { .cf-item.cur .cf-art img { transition: none; } }
+
+.liked-filter-empty { min-height: 150px; margin-top: 8px; }
+.liked-filter-empty[hidden] { display: none; }

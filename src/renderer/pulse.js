@@ -54,6 +54,7 @@ export function mountPulse(view) {
   let raf = 0;
   let chart = null;
   let notes = [];
+  let noteCursor = 0;
   let chartPromise = null;
   let countdownEnd = 0;
   let countdownValue = 0;
@@ -142,9 +143,23 @@ export function mountPulse(view) {
   let fps = 60;
   let fpsFrames = 0;
   let fpsAt = performance.now();
+  let drawTotal = 0;
+  let drawCount = 0;
+  let drawMax = 0;
+  const judgementEl = $(root, 'judgement');
+  const difficultyButtons = [...root.querySelectorAll('[data-difficulty]')];
+  const elementCache = new Map();
 
+  function element(key) {
+    let el = elementCache.get(key);
+    if (!el?.isConnected) {
+      el = $(root, key);
+      if (el) elementCache.set(key, el);
+    }
+    return el;
+  }
   function text(key, value) {
-    const el = $(root, key);
+    const el = element(key);
     if (el && el.textContent !== String(value)) el.textContent = value;
   }
 
@@ -201,21 +216,33 @@ export function mountPulse(view) {
     text('energy', `${Math.round(energy)}%`);
     text('bestCombo', `×${Math.max(maxCombo, progress.bestCombo)}`);
     text('clears', progress.clears.length);
-    $(root, 'energyMeter').setAttribute('aria-valuenow', String(Math.round(energy)));
-    $(root, 'energyBar').style.width = `${energy}%`;
+    const meter = element('energyMeter');
+    if (meter && meter.getAttribute('aria-valuenow') !== String(Math.round(energy))) meter.setAttribute('aria-valuenow', String(Math.round(energy)));
+    const bar = element('energyBar');
+    if (bar && bar.style.width !== `${energy}%`) bar.style.width = `${energy}%`;
     root.classList.toggle('is-low-energy', energy < 25);
     const overdriving = overdriveUntil > rawTime();
-    $(root, 'energy').parentElement.dataset.multiplier = overdriving ? '2' : String(Math.min(6, 1 + Math.floor(combo / 10)));
+    const multiplier = overdriving ? '2' : String(Math.min(6, 1 + Math.floor(combo / 10)));
+    const energyElement = element('energy');
+    if (energyElement?.parentElement.dataset.multiplier !== multiplier) energyElement.parentElement.dataset.multiplier = multiplier;
     root.classList.toggle('is-overdrive', overdriving);
     text('overdrive', overdriving ? `OVERDRIVE ×2 · ${Math.max(1, Math.ceil(overdriveUntil - rawTime()))} с` : '');
     root.dataset.difficulty = difficulty;
-    root.querySelectorAll('[data-difficulty]').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.difficulty === difficulty)));
+    difficultyButtons.forEach((button) => {
+      const value = String(button.dataset.difficulty === difficulty);
+      if (button.getAttribute('aria-pressed') !== value) button.setAttribute('aria-pressed', value);
+    });
     if (chart) text('chartInfo', `${DIFFICULTIES[difficulty].label} · ${chart.notes.length} нот · ${chart.onsets} атак · ≈ ${chart.bpm} BPM · −${Math.round(outputLatency() * 1000)} мс вывод`);
     const next = nextNote();
-    if (state === 'play') $(root, 'diagnostics').textContent = `${fps} FPS · ${next ? `следующая ${laneNames[next.lane]} · ${Math.max(0, next.time - rawTime()).toFixed(2)} с` : 'финиш'} · ${chart?.method || 'чарт'}`;
+    if (state === 'play') {
+      const diagnostics = element('diagnostics');
+      const value = `${fps} FPS · ${next ? `следующая ${laneNames[next.lane]} · ${Math.max(0, next.time - rawTime()).toFixed(2)} с` : 'финиш'} · ${chart?.method || 'чарт'}`;
+      if (diagnostics && diagnostics.textContent !== value) diagnostics.textContent = value;
+    }
   }
 
   function resetStats() {
+    noteCursor = 0;
     score = combo = maxCombo = judged = quality = perfect = great = good = misses = hits = holds = holdTicks = 0;
     energy = 55;
     lastJudge = null;
@@ -266,6 +293,7 @@ export function mountPulse(view) {
       });
     }
     updateHud();
+    if (next !== 'pause') startLoop();
   }
 
   async function prepare() {
@@ -351,6 +379,7 @@ export function mountPulse(view) {
     lastFrame = performance.now();
     AudioFX.ctx?.resume().catch(() => {});
     text('nova', 'Продолжаем. Музыкальные часы снова ведут ноты.');
+    startLoop();
     return true;
   }
 
@@ -379,8 +408,15 @@ export function mountPulse(view) {
     return true;
   }
 
+  function advanceNoteCursor() {
+    while (noteCursor < notes.length && ['hit', 'miss', 'skipped'].includes(notes[noteCursor].state)) noteCursor++;
+  }
   function nextNote(lane = null) {
-    return notes.find((note) => note.state === 'pending' && (lane == null || note.lane === lane));
+    for (let i = noteCursor; i < notes.length; i++) {
+      const note = notes[i];
+      if (note.state === 'pending' && (lane == null || note.lane === lane)) return note;
+    }
+    return null;
   }
 
   function judge(note, kind, offset) {
@@ -448,7 +484,8 @@ export function mountPulse(view) {
     }
     let target = null;
     let distance = Infinity;
-    for (const note of notes) {
+    for (let i = noteCursor; i < notes.length; i++) {
+      const note = notes[i];
       if (note.lane !== lane || note.state !== 'pending') continue;
       const delta = time - note.time;
       if (Math.abs(delta) <= WINDOWS.good && Math.abs(delta) < distance) { target = note; distance = Math.abs(delta); }
@@ -485,7 +522,10 @@ export function mountPulse(view) {
   function update(time) {
     if (state !== 'play') return;
     if (overdriveUntil && time >= overdriveUntil) overdriveUntil = 0;
-    for (const note of notes) {
+    advanceNoteCursor();
+    for (let i = noteCursor; i < notes.length; i++) {
+      const note = notes[i];
+      if (note.state === 'pending' && note.time > time + WINDOWS.good) break;
       if (note.state === 'pending' && time > note.time + WINDOWS.good) miss(note);
       if (state !== 'play') return;
       if (note.state === 'holding') {
@@ -534,25 +574,61 @@ export function mountPulse(view) {
     oscillator.stop(at + .35);
   }
 
-  function draw(now) {
-    context.clearRect(0, 0, width, height);
-    const bg = context.createLinearGradient(0, 0, width, height);
+  const staticLayer = document.createElement('canvas');
+  const staticContext = staticLayer.getContext('2d');
+  let staticBuilds = 0;
+
+  // Неоновый фон, звёзды, полотно и разметка неизменны между кадрами — рисуем их один раз.
+  function renderStatic() {
+    staticLayer.width = canvas.width;
+    staticLayer.height = canvas.height;
+    const target = staticContext;
+    target.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const bg = target.createLinearGradient(0, 0, width, height);
     bg.addColorStop(0, '#23dce5'); bg.addColorStop(.35, '#563cd1'); bg.addColorStop(.7, '#ed369c'); bg.addColorStop(1, '#6820b6');
-    context.fillStyle = bg; context.fillRect(0, 0, width, height);
-    context.save();
-    context.lineWidth = Math.max(22, width * .055);
-    context.strokeStyle = '#fff228'; context.shadowColor = '#ffde2b'; context.shadowBlur = 22;
-    context.beginPath(); context.ellipse(width * .15, height * .17, width * .34, height * .48, -.65, .1, Math.PI * 1.48); context.stroke();
-    context.lineWidth = Math.max(15, width * .032); context.strokeStyle = '#42f6ee'; context.shadowColor = '#42f6ee';
-    context.beginPath(); context.ellipse(width * .77, height * .05, width * .42, height * .36, .55, .1, Math.PI * 1.55); context.stroke();
-    context.lineWidth = Math.max(22, width * .06); context.strokeStyle = '#fa62c0'; context.shadowColor = '#fa62c0';
-    context.beginPath(); context.ellipse(width * .97, height * .55, width * .32, height * .54, .36, 1.7, Math.PI * 1.94); context.stroke();
-    context.restore();
+    target.fillStyle = bg; target.fillRect(0, 0, width, height);
+    target.save();
+    target.lineWidth = Math.max(22, width * .055);
+    target.strokeStyle = '#fff228'; target.shadowColor = '#ffde2b'; target.shadowBlur = 22;
+    target.beginPath(); target.ellipse(width * .15, height * .17, width * .34, height * .48, -.65, .1, Math.PI * 1.48); target.stroke();
+    target.lineWidth = Math.max(15, width * .032); target.strokeStyle = '#42f6ee'; target.shadowColor = '#42f6ee';
+    target.beginPath(); target.ellipse(width * .77, height * .05, width * .42, height * .36, .55, .1, Math.PI * 1.55); target.stroke();
+    target.lineWidth = Math.max(22, width * .06); target.strokeStyle = '#fa62c0'; target.shadowColor = '#fa62c0';
+    target.beginPath(); target.ellipse(width * .97, height * .55, width * .32, height * .54, .36, 1.7, Math.PI * 1.94); target.stroke();
+    target.restore();
     for (const star of stars) {
       const size = 1 + star.a * 10;
-      context.fillStyle = `rgba(255,255,255,${Math.min(.9, star.a + .15)})`;
-      context.fillRect(star.x * width, star.y * height * .58, size, size);
+      target.fillStyle = `rgba(255,255,255,${Math.min(.9, star.a + .15)})`;
+      target.fillRect(star.x * width, star.y * height * .58, size, size);
     }
+    const laneWidth = Math.min(width * .74, 600);
+    const left = (width - laneWidth) / 2;
+    const horizon = Math.max(67, height * .145);
+    const hitY = height - Math.max(88, height * .17);
+    const topWidth = laneWidth * .38;
+    const trackGradient = target.createLinearGradient(0, horizon, 0, height);
+    trackGradient.addColorStop(0, '#111129'); trackGradient.addColorStop(.55, '#21134f'); trackGradient.addColorStop(1, '#352078');
+    target.save(); target.shadowColor = 'rgba(197,77,255,.7)'; target.shadowBlur = 28;
+    target.fillStyle = trackGradient; target.beginPath();
+    target.moveTo(left + (laneWidth - topWidth) / 2, horizon); target.lineTo(left + (laneWidth + topWidth) / 2, horizon);
+    target.lineTo(left + laneWidth, height + 2); target.lineTo(left, height + 2); target.closePath(); target.fill(); target.restore();
+    for (let lane = 0; lane < laneCount; lane++) {
+      const bottomL = left + laneWidth * lane / laneCount;
+      const topL = left + (laneWidth - topWidth) / 2 + topWidth * lane / laneCount;
+      target.strokeStyle = 'rgba(205,175,255,.16)'; target.lineWidth = 1;
+      target.beginPath(); target.moveTo(topL, horizon); target.lineTo(bottomL, height); target.stroke();
+    }
+    for (let row = 1; row < 12; row++) {
+      const p = Math.pow(row / 12, 1.65), y = horizon + p * (hitY - horizon);
+      const currentWidth = topWidth + (laneWidth - topWidth) * p;
+      target.strokeStyle = 'rgba(194,163,255,.055)'; target.beginPath(); target.moveTo((width - currentWidth) / 2, y); target.lineTo((width + currentWidth) / 2, y); target.stroke();
+    }
+    staticBuilds++;
+  }
+
+  function draw(now) {
+    context.clearRect(0, 0, width, height);
+    context.drawImage(staticLayer, 0, 0, width, height);
     const laneWidth = Math.min(width * .74, 600);
     const left = (width - laneWidth) / 2;
     const horizon = Math.max(67, height * .145);
@@ -560,12 +636,6 @@ export function mountPulse(view) {
     const topWidth = laneWidth * .38;
     const time = state === 'pause' ? pauseDrawTime : clock();
     const pulse = effects.length && !reduced() ? Math.max(0, 1 - (now - effects[effects.length - 1].at) / 280) : 0;
-    const trackGradient = context.createLinearGradient(0, horizon, 0, height);
-    trackGradient.addColorStop(0, '#111129'); trackGradient.addColorStop(.55, '#21134f'); trackGradient.addColorStop(1, '#352078');
-    context.save(); context.shadowColor = 'rgba(197,77,255,.7)'; context.shadowBlur = 28;
-    context.fillStyle = trackGradient; context.beginPath();
-    context.moveTo(left + (laneWidth - topWidth) / 2, horizon); context.lineTo(left + (laneWidth + topWidth) / 2, horizon);
-    context.lineTo(left + laneWidth, height + 2); context.lineTo(left, height + 2); context.closePath(); context.fill(); context.restore();
     for (let lane = 0; lane < laneCount; lane++) {
       const bottomL = left + laneWidth * lane / laneCount;
       const bottomR = left + laneWidth * (lane + 1) / laneCount;
@@ -573,13 +643,6 @@ export function mountPulse(view) {
       const topR = left + (laneWidth - topWidth) / 2 + topWidth * (lane + 1) / laneCount;
       context.fillStyle = pressed.has(lane) ? 'rgba(246,113,255,.16)' : lane % 2 ? 'rgba(4,0,26,.12)' : 'rgba(255,255,255,.025)';
       context.beginPath(); context.moveTo(topL, horizon); context.lineTo(topR, horizon); context.lineTo(bottomR, hitY + 30); context.lineTo(bottomL, hitY + 30); context.closePath(); context.fill();
-      context.strokeStyle = 'rgba(205,175,255,.16)'; context.lineWidth = 1;
-      context.beginPath(); context.moveTo(topL, horizon); context.lineTo(bottomL, height); context.stroke();
-    }
-    for (let row = 1; row < 12; row++) {
-      const p = Math.pow(row / 12, 1.65), y = horizon + p * (hitY - horizon);
-      const currentWidth = topWidth + (laneWidth - topWidth) * p;
-      context.strokeStyle = 'rgba(194,163,255,.055)'; context.beginPath(); context.moveTo((width - currentWidth) / 2, y); context.lineTo((width + currentWidth) / 2, y); context.stroke();
     }
     context.save(); context.shadowColor = '#fa8aff'; context.shadowBlur = 13 + pulse * 20;
     context.strokeStyle = `rgba(255,146,252,${.6 + pulse * .4})`; context.lineWidth = 3;
@@ -594,11 +657,13 @@ export function mountPulse(view) {
       context.fillText(laneNames[lane], keyX, hitY + 22); context.restore();
     }
     if (state === 'play' || state === 'pause') {
-      for (const note of notes) {
-        if (['hit', 'miss'].includes(note.state)) continue;
+      for (let i = noteCursor; i < notes.length; i++) {
+        const note = notes[i];
+        if (['hit', 'miss', 'skipped'].includes(note.state)) continue;
         const until = note.time - time;
+        if (until > LOOKAHEAD) break;
         const holding = note.state === 'holding';
-        if (holding ? time > note.time + note.duration + Math.max(.18, WINDOWS.good + .04) : until > LOOKAHEAD || until < -Math.max(.18, WINDOWS.good + .04)) continue;
+        if (holding ? time > note.time + note.duration + Math.max(.18, WINDOWS.good + .04) : until < -Math.max(.18, WINDOWS.good + .04)) continue;
         const p = holding ? 1 : clamp(1 - until / LOOKAHEAD, 0, 1);
         const eased = Math.pow(p, 1.65);
         const y = horizon + eased * (hitY - horizon);
@@ -625,15 +690,17 @@ export function mountPulse(view) {
         context.restore();
       }
     }
-    const judgement = $(root, 'judgement');
+    const judgement = judgementEl;
     if (lastJudge && state === 'play') {
       const labels = { perfect: 'ИДЕАЛЬНО', great: 'ТОЧНО', good: 'ХОРОШО', miss: 'ПРОПУСК', broken: 'ЛУЧ ОБОРВАН', empty: 'МИМО ДОЛИ', hold: 'ЛУЧ ЗАВЕРШЁН' };
       const colors = { perfect: '#ace8d0', great: '#bcb2f4', good: '#a8d9f5', miss: '#f3b8cf', broken: '#f3b8cf', empty: '#85919d', hold: '#ace8d0' };
       const value = `${labels[lastJudge] || ''}${lastOffset && ['perfect', 'great', 'good'].includes(lastJudge) ? ` · ${lastOffset > 0 ? '+' : ''}${Math.round(lastOffset * 1000)} мс` : ''}`;
       if (judgement.textContent !== value) judgement.textContent = value;
-      judgement.style.color = colors[lastJudge] || '#fff';
-      judgement.dataset.kind = lastJudge;
-    } else judgement.textContent = '';
+      if (judgement.dataset.kind !== lastJudge) {
+        judgement.style.color = colors[lastJudge] || '#fff';
+        judgement.dataset.kind = lastJudge;
+      }
+    } else if (judgement.textContent) judgement.textContent = '';
   }
 
   function roundedRect(x, y, w, h, r) {
@@ -645,6 +712,7 @@ export function mountPulse(view) {
     dpr = Math.min(devicePixelRatio || 1, 1.5);
     canvas.width = Math.round(width * dpr); canvas.height = Math.round(height * dpr);
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    renderStatic();
   }
   const resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(stage);
@@ -667,9 +735,14 @@ export function mountPulse(view) {
     if (state === 'play') update(clock());
     if (state === 'pause' && !pauseDrawTime) pauseDrawTime = clock();
     if (state !== 'pause') pauseDrawTime = 0;
+    const drawStarted = performance.now();
     draw(now);
+    const drawElapsed = performance.now() - drawStarted;
+    drawTotal += drawElapsed;
+    drawCount++;
+    drawMax = Math.max(drawMax, drawElapsed);
     if (now - (frame.lastHud || 0) > 100) { updateHud(); frame.lastHud = now; }
-    raf = requestAnimationFrame(frame);
+    if (state !== 'pause') raf = requestAnimationFrame(frame);
   }
   function startLoop() { if (!raf && !destroyed && !document.hidden) { lastFrame = performance.now(); raf = requestAnimationFrame(frame); } }
 
@@ -733,6 +806,7 @@ export function mountPulse(view) {
       button.addEventListener('pointerdown', down); button.addEventListener('pointerup', up); button.addEventListener('pointercancel', up);
       laneCleanups.push(() => { button.removeEventListener('pointerdown', down); button.removeEventListener('pointerup', up); button.removeEventListener('pointercancel', up); });
     }
+    renderStatic();
   }
   function chooseDifficulty(id) {
     if (!DIFFICULTIES[id] || id === difficulty) return;
@@ -776,6 +850,7 @@ export function mountPulse(view) {
     score = combo = maxCombo = judged = quality = perfect = great = good = misses = hits = holds = holdTicks = 0;
     energy = 55;
     for (const note of notes) { note.state = note.time < rawTime() - .12 ? 'skipped' : 'pending'; note.judgement = null; note.ticks = 0; }
+    noteCursor = 0;
     updateHud();
   }
   function onVisibility() { if (document.hidden) { if (['play', 'countdown'].includes(state)) pause(true); cancelAnimationFrame(raf); raf = 0; } else startLoop(); }
@@ -814,7 +889,7 @@ export function mountPulse(view) {
     },
     inject(lane = 0, time = rawTime(), duration = 0) {
       const note = { id: Math.max(0, ...notes.map((n) => n.id)) + 1, lane: clamp(Number(lane) || 0, 0, laneCount - 1), time: Number(time), duration: Number(duration) || 0, state: 'pending', judgement: null };
-      notes.push(note); notes.sort((a, b) => a.time - b.time); return note.id;
+      notes.push(note); notes.sort((a, b) => a.time - b.time); noteCursor = 0; return note.id;
     },
     progress: () => ({ ...progress, clears: [...progress.clears], eighty: [...progress.eighty], activeStyle }),
     metrics: () => ({
@@ -823,6 +898,7 @@ export function mountPulse(view) {
       activeHolds: activeHolds.size, chartNotes: notes.length, onsets: chart?.onsets || 0,
       method: chart?.method || null, bpm: chart?.bpm || null, inferred: chart?.inferred || 0, calibration, sfxEnabled, trackTime: rawTime(), judgedTime: clock(), lastJudge, lastOffset,
       difficulty, laneCount, outputLatency: outputLatency(), overdriveUntil, scoreScale,
+      drawAvg: drawCount ? drawTotal / drawCount : 0, drawMax, drawCount, staticBuilds, noteCursor,
       nextNote: nextNote() ? { ...nextNote() } : null, unlocked: STYLES.filter(unlocked).map((s) => s.id), activeStyle, playing: Player.playing,
     }),
   };

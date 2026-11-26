@@ -163,6 +163,71 @@
     });
   }
 
+  /** Мгновенная фильтрация модели + FLIP: совпадения подтягиваются вверх без пустых мест. */
+  function replaceListTracks(root, list, tracks, emptyText = 'Совпадений нет') {
+    const previous = new Map();
+    for (const row of root.querySelectorAll('.tr')) previous.set(String(row.dataset.track), { row, top: row.getBoundingClientRect().top });
+    const state = [...virtualLists].find((item) => item.root === root);
+    const reduced = document.body.classList.contains('reduce-motion') || matchMedia('(prefers-reduced-motion: reduce)').matches;
+    list.tracks = tracks;
+    if (state) {
+      state.total = tracks.length;
+      state.root.style.height = `${tracks.length * state.rowH + Math.max(0, tracks.length - 1) * (state.step - state.rowH)}px`;
+      if (state.rootTop != null) $('#scroller').scrollTop = Math.min($('#scroller').scrollTop, state.rootTop);
+      state.rootTop = null;
+      state.start = -1;
+      state.end = -1;
+      const indexes = new Map(tracks.map((track, i) => [String(track.id), i]));
+      for (const row of [...root.children]) {
+        const index = indexes.get(String(row.dataset.track));
+        if (index == null) { row.remove(); continue; }
+        row.dataset.idx = index;
+        row.dataset.virtualPosition = '';
+        const number = row.querySelector('.num');
+        if (number) number.textContent = index + 1;
+      }
+      renderVirtual(state);
+    } else {
+      const existing = new Map([...previous].map(([id, item]) => [id, item.row]));
+      const fragment = document.createDocumentFragment();
+      tracks.forEach((track, i) => {
+        let row = existing.get(String(track.id));
+        if (!row) {
+          const template = document.createElement('template');
+          template.innerHTML = trackRow(track, i, root.dataset.listRoot, list.options || {});
+          row = template.content.firstElementChild;
+        }
+        row.dataset.idx = i;
+        const number = row.querySelector('.num');
+        if (number) number.textContent = i + 1;
+        fragment.append(row);
+      });
+      root.replaceChildren(fragment);
+      root.style.height = '';
+    }
+    const empty = root.parentElement.querySelector('.liked-filter-empty') || (() => {
+      const el = document.createElement('div');
+      el.className = 'empty liked-filter-empty';
+      el.setAttribute('role', 'status');
+      root.parentElement.append(el);
+      return el;
+    })();
+    empty.innerHTML = `${icon('search')}<div>${esc(emptyText)}</div>`;
+    empty.hidden = tracks.length > 0;
+    if (reduced) return;
+    for (const row of root.querySelectorAll('.tr')) {
+      const old = previous.get(String(row.dataset.track));
+      const top = row.getBoundingClientRect().top;
+      const dy = old ? old.top - top : 0;
+      if (old && Math.abs(dy) < 1) continue;
+      row._filterAnimation?.cancel();
+      row._filterAnimation = row.animate([
+        { transform: old ? `translateY(${dy}px)` : 'translateY(22px)', opacity: old ? 1 : 0 },
+        { transform: 'translateY(0px)', opacity: 1 },
+      ], { duration: old ? 360 : 280, easing: 'cubic-bezier(.2,.82,.2,1)' });
+    }
+  }
+
   let imageWarmToken = 0;
   function warmImages(root = document) {
     const token = ++imageWarmToken;
@@ -296,27 +361,35 @@
   const portalHtml = () =>
     `<button class="wv-play${wavePlaying() ? ' playing' : ''}" data-act="wave-toggle" id="waveOrb" title="Музыкальная орбита — играть / пауза" aria-label="Музыкальная орбита — играть или пауза">${icon(wavePlaying() ? 'pause' : 'play')}</button>`;
 
-  /** В оконном режиме — лёгкий спектр; планетарная 3D-сцена остаётся в погружении. */
+  /** В оконном режиме — чистая гравитационная спираль; 3D-миры остаются в погружении. */
   function attachCosmos(canvas, pointer) {
     if (!canvas) return;
+    const hero = canvas.closest('.wv-hero, .home-wave');
+    const gravity = !document.body.classList.contains('design-classic');
+    hero?.classList.toggle('gravity-orbit', gravity);
     const handle = Viz.attach(canvas, {
-      style: 'waves',
+      style: gravity ? 'gravity' : 'waves',
       idle: true,
       sensitivity: 1.05,
       liveIf: () => Player.source?.kind === 'wave',
       pointer,
-      seekEl: canvas.parentElement.querySelector('.wv-ring-seek'),
+      centerFn: (target) => {
+        const c = target.getBoundingClientRect();
+        const play = target.parentElement.querySelector('#waveOrb');
+        if (!play) return { x: c.width * 0.72, y: c.height * 0.46, r: 50 };
+        const r = play.getBoundingClientRect();
+        return { x: r.left + r.width / 2 - c.left, y: r.top + r.height / 2 - c.top, r: r.width / 2 };
+      },
       fps: 60,
       maxDpr: 1,
       onFrame: (V) => {
-        const hero = canvas.closest('.wv-hero, .home-wave');
         if (!hero) return;
         hero.style.setProperty('--beat', (wavePlaying() ? V.bass * 0.6 + V.beat * 0.6 : 0).toFixed(3));
         hero.style.setProperty('--energy', (wavePlaying() ? V.level : 0).toFixed(3));
       },
     });
     canvas._cosmos = handle;
-    canvas.dataset.scene = 'waves';
+    canvas.dataset.scene = gravity ? 'gravity' : 'waves';
     return handle;
   }
 
@@ -890,6 +963,12 @@
       view.querySelector('#likedList').innerHTML = errorBox(e);
       return;
     }
+    const filterScenario = new URLSearchParams(window.__ZG_ARGS__ || location.search).get('extra') === 'likedfilter';
+    let useFilterFixture = false;
+    if (filterScenario && ids.length < 36) {
+      ids = Array.from({ length: 240 }, (_, i) => `filter-track-${i}`);
+      useFilterFixture = true;
+    }
     App.likes.track = new Set(ids);
     const meta = view.querySelector('#likedMeta');
     if (meta) meta.textContent = tracksWord(ids.length);
@@ -905,22 +984,47 @@
     view.querySelector('#likedShuffle').dataset.list = listId;
     listEl.innerHTML = `<div class="tracks" data-list-root="${listId}"></div>`;
     const root = listEl.firstChild;
+    const list = Lists.get(listId);
+    const filter = view.querySelector('#likedFilter');
+    const textCache = new WeakMap();
+    const normalize = (value) => String(value || '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const searchText = (track) => {
+      if (!textCache.has(track)) textCache.set(track, normalize(`${track.title} ${artistsText(track.artists)} ${track.release?.title || ''}`));
+      return textCache.get(track);
+    };
+    const applyFilter = () => {
+      if (!root.isConnected) return;
+      const tokens = normalize(filter.value).split(' ').filter(Boolean);
+      const matched = tokens.length ? tracks.filter((track) => tokens.every((token) => searchText(track).includes(token))) : tracks.slice();
+      replaceListTracks(root, list, matched, tokens.length ? 'Ничего не найдено. Попробуйте другое название или исполнителя.' : '');
+    };
+    filter.addEventListener('input', applyFilter);
+    const fixture = [
+      ['God Is A Weapon', 'Falling In Reverse', 'Popular Monster'],
+      ['GPT', 'Элджей, ANIKV', 'COMPLEX полноценности'],
+      ['GO', 'Blackpink', 'DEADLINE'],
+      ['Во тьме', 'dotla.', 'Пьяный поцелуй'],
+      ['Love Me', 'From Ashes To New', 'Blackout'],
+      ['Spiral Dreams', 'Nova', 'Гравитация'],
+    ];
+    const fixtureImages = ['joy', 'shy', 'support', 'tenderness', 'thoughtful', 'surprise'];
     for (let i = 0; i < ids.length; i += 150) {
-      const part = await api('getTracks', ids.slice(i, i + 150));
+      const part = useFilterFixture ? ids.slice(i, i + 150).map((id, k) => {
+        const n = i + k;
+        const f = fixture[n % fixture.length];
+        return {
+          id, title: n < fixture.length ? f[0] : `${f[0]} · ${n + 1}`, duration: 180 + n % 90,
+          artists: [{ id: `filter-artist-${n % fixture.length}`, title: f[1] }],
+          release: { id: `filter-release-${n % fixture.length}`, title: f[2], image: { src: `assets/nova/emotions/${fixtureImages[n % fixtureImages.length]}.webp` } },
+        };
+      }) : await api('getTracks', ids.slice(i, i + 150));
       if (!root.isConnected) return;
       const start = tracks.length;
       tracks.push(...part);
       root.insertAdjacentHTML('beforeend', part.map((t, k) => trackRow(t, start + k, listId)).join(''));
+      if (normalize(filter.value)) applyFilter();
+      else list.tracks = tracks;
     }
-    const filter = view.querySelector('#likedFilter');
-    filter.addEventListener('input', debounce(() => {
-      const f = filter.value.trim().toLowerCase();
-      root.querySelectorAll('.tr').forEach((row) => {
-        const t = tracks[+row.dataset.idx];
-        const hay = (t.title + ' ' + artistsText(t.artists) + ' ' + (t.release?.title || '')).toLowerCase();
-        row.style.display = !f || hay.includes(f) ? '' : 'none';
-      });
-    }, 150));
   };
 
   // ---------- Коллекция ----------

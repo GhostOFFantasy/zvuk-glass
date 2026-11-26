@@ -392,6 +392,8 @@
     const style = o.style;
     if (style === 'bars' && o.soft) {
       drawSoftBars(h, live, w, ht, dpr);
+    } else if (style === 'gravity') {
+      drawGravitySpiral(h, live, w, ht, dpr);
     } else if (style === 'waves') {
       drawWaves(h, live, w, ht, dpr);
     } else if (style === 'aura') {
@@ -576,6 +578,137 @@
       return { x: h._c.x * dpr, y: h._c.y * dpr, r: h._c.r * dpr };
     }
     return { x: w / 2, y: ht / 2, r: Math.min(w, ht) * 0.18 };
+  }
+
+  const GRAVITY_TAU = Math.PI * 2;
+  const gravityRand = (i, salt = 0) => {
+    const x = Math.sin(i * 127.1 + salt * 311.7) * 43758.5453;
+    return x - Math.floor(x);
+  };
+
+  /** Чистая гравитационная спираль: частицы и свет, без обложек и карточек треков. */
+  function drawGravitySpiral(h, live, w, ht, dpr) {
+    const g = h.g;
+    const c = centerOf(h, w, ht, dpr);
+    const vals = values(h, live, 96);
+    const reduced = document.body.classList.contains('reduce-motion');
+    const now = performance.now();
+    const dt = Math.min(0.05, Math.max(0.001, (now - (h._gravityAt || now - 16)) / 1000));
+    h._gravityAt = now;
+    const targetEnergy = live ? Math.min(1, Viz.level * 1.3 + Viz.bass * 0.45 + Viz.beat * 0.2) : 0;
+    h._gravityEnergy = (h._gravityEnergy || 0) + (targetEnergy - (h._gravityEnergy || 0)) * (1 - Math.exp(-dt * 5));
+    const energy = h._gravityEnergy;
+    const targetSpeed = reduced ? 0 : live ? 0.105 + energy * 0.16 : 0.018;
+    h._gravitySpeed = (h._gravitySpeed ?? targetSpeed) + (targetSpeed - (h._gravitySpeed ?? targetSpeed)) * (1 - Math.exp(-dt * 3));
+    h._gravitySpin = (h._gravitySpin || 0) + dt * h._gravitySpeed;
+    h._gravityFlow = (h._gravityFlow || 0) + (reduced ? 0 : dt * (live ? 0.014 + energy * 0.014 : 0.0025));
+    if (!h._gravityDust) {
+      h._gravityDust = Array.from({ length: 1100 }, (_, i) => ({
+        u: gravityRand(i, 1), arm: i % 4,
+        radial: (gravityRand(i, 2) - 0.5) * 0.16,
+        angular: (gravityRand(i, 3) - 0.5) * 0.16,
+        size: 0.75 + gravityRand(i, 4) * 2.1,
+        alpha: 0.22 + gravityRand(i, 5) * 0.78,
+        phase: gravityRand(i, 6) * GRAVITY_TAU,
+        alt: gravityRand(i, 7) > 0.58,
+      }));
+    }
+    const core = Math.max(38 * dpr, c.r * 1.05);
+    const R = Math.max(core * 2.2, Math.min(w * 0.43, ht * 1.06));
+    const flatten = 0.44;
+    const spin = h._gravitySpin;
+    const point = (u, arm, angular = 0, radial = 0) => {
+      const angle = arm * GRAVITY_TAU / 4 + Math.pow(u, 0.78) * GRAVITY_TAU * 0.95 + spin + angular;
+      const radius = core + (R - core) * Math.pow(u, 0.92);
+      const rr = radius * (1 + radial * u);
+      return [Math.cos(angle) * rr, Math.sin(angle) * rr * flatten];
+    };
+
+    g.save();
+    g.translate(c.x, c.y);
+    g.rotate(-0.12);
+    g.globalCompositeOperation = 'source-over';
+    const halo = g.createRadialGradient(0, 0, core * 0.3, 0, 0, R * 0.82);
+    halo.addColorStop(0, rgba(accRGB, 0.13 + energy * 0.12));
+    halo.addColorStop(0.32, rgba(acc2RGB, 0.045 + energy * 0.05));
+    halo.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = halo;
+    g.beginPath();
+    g.arc(0, 0, R * 0.82, 0, GRAVITY_TAU);
+    g.fill();
+
+    g.globalCompositeOperation = 'lighter';
+    g.lineCap = 'round';
+    g.shadowBlur = 3 * dpr;
+    for (let arm = 0; arm < 4; arm++) {
+      g.beginPath();
+      for (let j = 0; j <= 180; j++) {
+        const p = point(0.025 + (j / 180) * 0.975, arm);
+        if (j) g.lineTo(p[0], p[1]);
+        else g.moveTo(p[0], p[1]);
+      }
+      g.globalAlpha = 0.28 + energy * 0.14;
+      g.strokeStyle = arm % 2 ? rgba(acc2RGB, 0.88) : rgba(accRGB, 0.9);
+      g.lineWidth = 0.95 * dpr;
+      g.stroke();
+    }
+    g.shadowBlur = 0;
+
+    for (let i = 0; i < h._gravityDust.length; i++) {
+      const p = h._gravityDust[i];
+      const u = 1 - ((1 - p.u + h._gravityFlow) % 1);
+      const pos = point(Math.max(0.018, u), p.arm, p.angular, p.radial);
+      const depth = 0.55 + 0.45 * Math.sin(p.arm * GRAVITY_TAU / 4 + u * GRAVITY_TAU + spin);
+      const fade = Math.sin(Math.PI * u);
+      const v = vals[Math.min(vals.length - 1, Math.floor(u * vals.length))];
+      const twinkle = reduced ? 1 : 0.82 + 0.18 * Math.sin(tIdle * 0.8 + p.phase);
+      g.globalAlpha = Math.min(0.95, (0.16 + p.alpha * 0.6 + v * 0.35) * fade * depth * twinkle * (1 + energy * 0.45));
+      g.fillStyle = p.alt ? accent2 : accent;
+      const size = p.size * dpr * (0.7 + depth * 0.5) * (1 + energy * 0.25);
+      if (size < 1.15 * dpr) g.fillRect(pos[0], pos[1], size, size);
+      else {
+        g.beginPath();
+        g.arc(pos[0], pos[1], size, 0, GRAVITY_TAU);
+        g.fill();
+      }
+    }
+
+    // Гравитационный колодец оставляет центр свободным для настоящей кнопки play/pause.
+    g.globalCompositeOperation = 'source-over';
+    g.globalAlpha = 1;
+    const well = g.createRadialGradient(0, 0, 0, 0, 0, core * 2.6);
+    well.addColorStop(0, 'rgba(3,8,14,0.96)');
+    well.addColorStop(0.4, 'rgba(4,10,17,0.82)');
+    well.addColorStop(0.72, 'rgba(5,12,20,0.28)');
+    well.addColorStop(1, 'rgba(5,12,20,0)');
+    g.fillStyle = well;
+    g.beginPath();
+    g.arc(0, 0, core * 2.6, 0, GRAVITY_TAU);
+    g.fill();
+    g.strokeStyle = rgba(accRGB, 0.2 + energy * 0.28);
+    g.lineWidth = 0.8 * dpr;
+    g.beginPath();
+    g.arc(0, 0, core * (1.16 + energy * 0.05), 0, GRAVITY_TAU);
+    g.stroke();
+    g.restore();
+
+    // Свет не мешает заголовку слева, особенно на узких окнах.
+    g.globalCompositeOperation = 'destination-in';
+    const mask = g.createLinearGradient(0, 0, w, 0);
+    mask.addColorStop(0, 'rgba(0,0,0,0)');
+    mask.addColorStop(0.2, 'rgba(0,0,0,0.12)');
+    mask.addColorStop(0.43, 'rgba(0,0,0,1)');
+    mask.addColorStop(1, 'rgba(0,0,0,1)');
+    g.fillStyle = mask;
+    g.fillRect(0, 0, w, ht);
+    g.globalCompositeOperation = 'source-over';
+    g.globalAlpha = 1;
+    const diag = h.canvas._gravity || (h.canvas._gravity = { frames: 0 });
+    diag.frames++;
+    diag.x = c.x / dpr;
+    diag.y = c.y / dpr;
+    diag.energy = energy;
+    diag.speed = h._gravitySpeed;
   }
 
   /** Мягкие волны снизу: три слоя плавных кривых с прозрачной заливкой. */

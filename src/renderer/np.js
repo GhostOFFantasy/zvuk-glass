@@ -5,60 +5,84 @@
   const flow = document.getElementById('npFlow');
   const items = new Map(); // индекс в очереди → элемент
   const RANGE = 3;
+  const RING_RANGE = 6;
+  const RING_SLOTS = RING_RANGE * 2 + 1;
   // Классическая Cover Flow остаётся отдельной геометрией.
   const X = [0, 0.98, 1.66, 2.2, 2.6];
   const SC = [1, 0.7, 0.54, 0.44, 0.38];
   const RY = [0, 40, 50, 56, 60];
   const Z = [0, -140, -260, -360, -420];
   const OP = [1, 1, 0.75, 0.35, 0];
-  // Орбитальная очередь: крупное ядро и лёгкие спутники на зеркальных дугах.
-  const OX = [0, 1.04, 1.58, 1.98, 2.25];
-  const OY = [0, 0.19, -0.1, 0.14, -0.18];
-  const OSC = [1, 0.34, 0.25, 0.19, 0.14];
-  const ORZ = [0, -8, 7, -5, 4];
-  const OZ = [0, -30, -90, -160, -220];
-  const OOP = [1, 1, 0.82, 0.42, 0];
 
   let scene = null;
+  const layout = { classic: false, width: 0, size: 0 };
+
+  function ringRadius(size) {
+    return Math.max(size * 0.5, Math.min(size * 1.72, layout.width / 2 - size * 0.34));
+  }
+
+  // Индексы замыкаются только там, где это разрешено режимом очереди.
+  function ringOffset(i) {
+    const n = Player.queue.length;
+    const off = i - Player.index;
+    if (!n || layout.classic || !(Player.endless || Player.repeat === 'all')) return off;
+    const wrapped = ((off % n) + n) % n;
+    return wrapped > n / 2 ? wrapped - n : wrapped;
+  }
 
   function base(off, size, el) {
-    const a = Math.min(4, Math.abs(off));
-    const s = Math.sign(off);
-    if (!document.body.classList.contains('design-classic')) {
-      const scale = OSC[a];
-      const x = (OX[a] * s * size).toFixed(1);
-      const y = (OY[a] * size).toFixed(1);
+    if (!layout.classic) {
+      const angle = off * Math.PI * 2 / RING_SLOTS;
+      const sine = Math.sin(angle);
+      const cosine = Math.cos(angle);
+      const depth = (cosine + 1) / 2;
+      const radiusX = ringRadius(size);
+      const scale = off === 0 ? 1 : 0.16 + 0.42 * depth;
+      const ry = -sine * 28;
+      const x = sine * radiusX;
+      const y = (cosine - 1) * size * 0.32;
+      const z = (cosine - 1) * size * 0.45;
       // Наклоняем только обложку: подпись остаётся ровной и строго по её центру.
-      el.style.setProperty('--satellite-tilt', `${ORZ[a] * s}deg`);
-      el.style.setProperty('--satellite-scale', scale);
+      el.style.setProperty('--satellite-tilt', `${(-sine * 3).toFixed(2)}deg`);
+      el.style.setProperty('--satellite-scale', scale.toFixed(3));
+      el.style.setProperty('--orbit-ry', `${ry.toFixed(2)}deg`);
+      el.style.zIndex = String(100 + Math.round(depth * 100));
       return {
-        t: `translate3d(${x}px, ${y}px, ${OZ[a]}px) scale(${scale})`,
-        o: OOP[a], ry: 0, labelScale: 1 / scale,
+        t: `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, ${z.toFixed(1)}px) scale(${scale.toFixed(3)})`,
+        o: off === 0 ? 1 : Math.max(0.18, 0.28 + 0.72 * depth), ry: 0, labelScale: 1 / scale,
       };
     }
+    const a = Math.min(4, Math.abs(off));
+    const s = Math.sign(off);
     const ry = RY[a] * s;
     el.style.removeProperty('--satellite-tilt');
     el.style.removeProperty('--satellite-scale');
+    el.style.removeProperty('--orbit-ry');
+    el.style.removeProperty('z-index');
     return { t: `translateX(${(X[a] * s * size).toFixed(1)}px) translateZ(${Z[a]}px) rotateY(${ry}deg) scale(${SC[a]})`, o: OP[a], ry, labelScale: 1 };
   }
 
   // ---------- Наведение: двигается только содержимое, «рамка» карточки стоит на месте ----------
   function hoverPose(el) {
-    const card = el.firstChild;
-    if (!el.classList.contains('hover')) {
+    const card = el._card || el.firstChild;
+    const hovered = el.classList.contains('hover');
+    if (!hovered && !el._hoverStyled) return;
+    if (!hovered) {
       for (const p of ['--hry', '--hz', '--hs']) card.style.removeProperty(p);
+      el._hoverStyled = false;
       return;
     }
+    el._hoverStyled = true;
     if (el.classList.contains('side')) {
-      const orbital = !document.body.classList.contains('design-classic');
+      const orbital = !layout.classic;
       // Спутник лишь слегка приближается: старое разворачивание ломало орбитальный силуэт.
       card.style.setProperty('--hry', orbital ? '0deg' : (-parseFloat(el.dataset.bry || 0) * 0.78).toFixed(1) + 'deg');
       card.style.setProperty('--hz', orbital ? '46px' : '90px');
       card.style.setProperty('--hs', orbital ? '1.12' : '1.06');
     } else {
       card.style.removeProperty('--hry');
-      card.style.setProperty('--hz', '20px');
-      card.style.setProperty('--hs', '1.02');
+      card.style.setProperty('--hz', '36px');
+      card.style.setProperty('--hs', '1.025');
     }
   }
 
@@ -70,26 +94,35 @@
     el.innerHTML = `<div class="cf-card"><div class="cf-tilt"><div class="cf-art">
         <img src="${esc(cover(t, 600))}" alt="" draggable="false">
         <div class="cf-dim"></div><div class="cf-shine"></div>
-        </div><div class="cf-play"><span class="pp-play">${icon('play')}</span><span class="pp-pause">${icon('pause')}</span></div>
-      </div><div class="cf-label"><span class="tag"></span><span class="ttl">${esc(t.title)}</span><small>${esc(artistsText(t.artists))}</small><span class="go">${icon('play')}</span></div></div>`;
-    const tilt = el.firstChild.firstChild;
+        </div></div><div class="cf-label"><span class="tag"></span><span class="ttl">${esc(t.title)}</span><small>${esc(artistsText(t.artists))}</small><span class="go">${icon('play')}</span></div></div>`;
+    el._card = el.firstChild;
+    el._tag = el.querySelector('.tag');
+    const tilt = el._card.firstChild;
+    el._tilt = tilt;
+    const card = el._card;
     let raf = 0;
     let last = null;
     const applyTilt = () => {
       raf = 0;
       if (!last || !el.classList.contains('hover')) return;
       const r = el.getBoundingClientRect();
+      const current = el.classList.contains('cur');
       const px = Math.max(-0.5, Math.min(0.5, (last.clientX - r.left) / r.width - 0.5));
       const py = Math.max(-0.5, Math.min(0.5, (last.clientY - r.top) / r.height - 0.5));
-      tilt.style.setProperty('--ry', (px * 16).toFixed(2) + 'deg');
-      tilt.style.setProperty('--rx', (-py * 12).toFixed(2) + 'deg');
+      tilt.style.setProperty('--ry', (px * (current ? 10 : 16)).toFixed(2) + 'deg');
+      tilt.style.setProperty('--rx', (-py * (current ? 8 : 12)).toFixed(2) + 'deg');
       tilt.style.setProperty('--sx', ((px + 0.5) * 100).toFixed(1) + '%');
       tilt.style.setProperty('--sy', ((py + 0.5) * 100).toFixed(1) + '%');
-      tilt.style.setProperty('--px', (-px * 14).toFixed(1) + 'px');
-      tilt.style.setProperty('--py', (-py * 14).toFixed(1) + 'px');
+      tilt.style.setProperty('--px', (-px * (current ? 20 : 14)).toFixed(1) + 'px');
+      tilt.style.setProperty('--py', (-py * (current ? 20 : 14)).toFixed(1) + 'px');
+      if (current) {
+        card.style.setProperty('--mx', (px * 8).toFixed(1) + 'px');
+        card.style.setProperty('--my', (py * 6).toFixed(1) + 'px');
+      }
     };
     el.addEventListener('pointerenter', () => {
       el.classList.add('hover');
+      if (el.classList.contains('cur')) el.style.setProperty('--art-scale', '1.06');
       flow.classList.toggle('flow-hover', el.classList.contains('side'));
       hoverPose(el);
     });
@@ -99,9 +132,11 @@
     });
     el.addEventListener('pointerleave', () => {
       el.classList.remove('hover');
+      el.style.removeProperty('--art-scale');
       if (!flow.querySelector('.cf-item.hover')) flow.classList.remove('flow-hover');
       hoverPose(el);
       for (const p of ['--rx', '--ry', '--px', '--py']) tilt.style.removeProperty(p);
+      for (const p of ['--mx', '--my']) card.style.removeProperty(p);
     });
     el.addEventListener('click', () => {
       const qi = +el.dataset.qi;
@@ -111,19 +146,23 @@
     return el;
   }
 
-  function place(el, offOverride) {
-    const size = el.offsetWidth || flow.clientHeight;
-    const off = offOverride != null ? offOverride : +el.dataset.qi - Player.index;
+  function place(el, offOverride, force = false) {
+    const size = layout.size || el.offsetWidth || flow.clientHeight;
+    const off = offOverride != null ? offOverride : ringOffset(+el.dataset.qi);
+    const poseKey = `${off}|${size}|${layout.width}|${layout.classic ? 1 : 0}`;
+    if (!force && el._poseKey === poseKey) return;
+    el._poseKey = poseKey;
     const { t, o, ry, labelScale } = base(off, size, el);
     el.style.transform = t;
     el.style.opacity = o;
     el.style.setProperty('--label-scale', labelScale.toFixed(3));
     el.dataset.bry = ry;
+    el.dataset.ringOff = off;
     el.classList.toggle('cur', off === 0);
     el.classList.toggle('side', off !== 0);
     el.classList.toggle('far', Math.abs(off) >= 2);
-    const tag = el.querySelector('.tag');
-    if (tag) tag.textContent = off === 0 ? '' : off > 0 ? (off === 1 ? 'Далее' : `Через ${off}`) : off === -1 ? 'Ранее' : `${-off} назад`;
+    const text = off === 0 ? '' : off > 0 ? (off === 1 ? 'Далее' : `Через ${off}`) : off === -1 ? 'Ранее' : `${-off} назад`;
+    if (el._tag && el._tag.textContent !== text) el._tag.textContent = text;
     hoverPose(el);
   }
 
@@ -131,32 +170,64 @@
     if (root.classList.contains('hidden')) return;
     const q = Player.queue;
     const idx = Player.index;
+    const classic = document.body.classList.contains('design-classic');
+    layout.classic = classic;
+    layout.width = flow.clientWidth;
+    layout.size = items.values().next().value?.offsetWidth || 0;
+    const range = classic ? RANGE : RING_RANGE;
+    const wrap = !classic && q.length > 1 && (Player.endless || Player.repeat === 'all');
     const want = new Set();
-    for (let i = Math.max(0, idx - RANGE); i <= Math.min(q.length - 1, idx + RANGE); i++) want.add(i);
+    if (idx >= 0 && idx < q.length) {
+      for (let off = -range; off <= range; off++) {
+        let i = idx + off;
+        if (wrap) i = ((i % q.length) + q.length) % q.length;
+        if (i >= 0 && i < q.length && Math.abs(ringOffset(i)) <= range) want.add(i);
+      }
+    }
     for (const [i, el] of items) {
       if (!want.has(i) || !q[i] || el.dataset.tid !== String(q[i].id)) {
         items.delete(i);
         el.style.pointerEvents = 'none';
-        place(el, i - idx > 0 ? 4 : -4);
+        const previous = +el.dataset.ringOff || ringOffset(i) || 1;
+        place(el, classic ? (previous > 0 ? 4 : -4) : Math.sign(previous) * (RING_RANGE + 1));
+        el.classList.add('recycling');
         el.style.opacity = 0;
         setTimeout(() => el.remove(), 800);
       }
     }
+    const added = [];
     for (const i of want) {
       let el = items.get(i);
       if (!el) {
         el = build(i, q[i]);
         flow.appendChild(el);
         items.set(i, el);
-        const off = i - idx;
-        place(el, off >= 0 ? Math.min(4, off + 1) : Math.max(-4, off - 1));
+        layout.size ||= el.offsetWidth;
+        const off = ringOffset(i);
+        if (classic) place(el, off >= 0 ? Math.min(4, off + 1) : Math.max(-4, off - 1));
+        else {
+          place(el, Math.abs(off) >= RING_RANGE - 1 ? Math.sign(off) * (RING_RANGE + 1) : off);
+          if (Math.abs(off) >= RING_RANGE - 1) el.classList.add('materializing');
+        }
         el.style.opacity = 0;
-        el.getBoundingClientRect(); // начальное положение для анимации появления
-      }
-      place(el);
+        added.push(el);
+      } else place(el);
     }
+    if (!classic && layout.size) flow.style.setProperty('--ring-width', `${(ringRadius(layout.size) * 2).toFixed(1)}px`);
+    if (added.length) flow.getBoundingClientRect(); // один расчёт раскладки для всей новой группы
+    for (const el of added) {
+      place(el, undefined, true);
+      setTimeout(() => el.classList.remove('materializing'), 800);
+    }
+    const count = document.getElementById('npQueueCount');
+    const countText = q.length ? `∞ ${tracksWord(q.length)}` : '';
+    if (count.textContent !== countText) count.textContent = countText;
+    const countTitle = Player.endless ? 'Очередь подгружается автоматически' : 'Треков в текущей очереди';
+    if (count.title !== countTitle) count.title = countTitle;
     const src = Player.source?.title;
-    document.getElementById('npSource').textContent = src ? `Сейчас играет · ${src}` : 'Сейчас играет';
+    const sourceEl = document.getElementById('npSource');
+    const sourceText = src ? `Сейчас играет · ${src}` : 'Сейчас играет';
+    if (sourceEl.textContent !== sourceText) sourceEl.textContent = sourceText;
   }
 
   /** Центр и радиус текущей обложки (для кольца и ауры визуализатора). */
@@ -339,5 +410,6 @@
     render,
   };
   window.addEventListener('resize', debounce(render, 80));
+  Player.on('modes', () => { if (NP.isOpen) render(); });
   window.NP = NP;
 })();

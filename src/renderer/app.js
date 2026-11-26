@@ -503,8 +503,9 @@
     if (on && play && slot) slot.append(play);
     else if (!on && play && portal) portal.insertBefore(play, portal.querySelector('.wv-instrument-action'));
     if (canvas?._cosmos) {
-      canvas._cosmos.set({ style: on ? 'none' : 'waves' });
-      canvas.dataset.scene = on ? 'orbit3d' : 'waves';
+      const normalStyle = document.body.classList.contains('design-classic') ? 'waves' : 'gravity';
+      canvas._cosmos.set({ style: on ? 'none' : normalStyle });
+      canvas.dataset.scene = on ? 'orbit3d' : normalStyle;
     }
     const sceneLabel = $('.wv-portal-label');
     if (sceneLabel) sceneLabel.innerHTML = `<span></span>${on ? 'Музыкальные миры' : 'Орбитальная карта'}<span></span>`;
@@ -2392,10 +2393,38 @@
         console.warn('SELFTEST pulserhythm: ' + JSON.stringify(report));
         return window.zvuk.screenshotReady(300);
       }
+      if (extra === 'pulseperf') AudioFX.setVolume(0);
       const starting = game.start();
       if (extra === 'pulsecount') { await untilState('countdown'); return window.zvuk.screenshotReady(350); }
       await starting;
       await untilPlay();
+      if (extra === 'pulseperf') {
+        const deltas = [];
+        let previous = performance.now();
+        const end = previous + 3000;
+        await new Promise((resolve) => {
+          const tick = (now) => {
+            deltas.push(now - previous);
+            previous = now;
+            if (now < end) requestAnimationFrame(tick);
+            else resolve();
+          };
+          requestAnimationFrame(tick);
+        });
+        deltas.sort((a, b) => a - b);
+        const m = game.metrics();
+        const report = {
+          fps: Math.round(deltas.length * 1000 / (previous - end + 3000)),
+          p95: Math.round((deltas[Math.floor(deltas.length * .95)] || 0) * 10) / 10,
+          over25: deltas.filter((value) => value > 25).length,
+          drawAvgMs: Math.round((m.drawAvg || 0) * 1000) / 1000,
+          drawMaxMs: Math.round((m.drawMax || 0) * 1000) / 1000,
+          frames: m.drawCount || 0, notes: m.chartNotes,
+        };
+        report.pass = report.frames > 30 && report.notes > 0;
+        console.warn('SELFTEST pulseperf: ' + JSON.stringify(report));
+        return window.zvuk.screenshotReady(300);
+      }
       if (extra === 'pulseplay' || extra === 'pulsepause') {
         await game.perfectNext();
         if (extra === 'pulsepause') game.pause();
@@ -2857,6 +2886,62 @@
       NP.vizOn = extra.includes('viz');
       openNowPlaying();
       await wait(2200);
+      if (extra === 'nporbitring' || extra === 'nporbitringwide') {
+        Player.save = () => {};
+        try {
+          const saved = JSON.parse(localStorage.getItem('zg.queue.v1') || 'null');
+          const synthetic = saved?.queue?.filter((track) => String(track.id).startsWith('ring-demo-')).length || 0;
+          if (synthetic > 200) localStorage.removeItem('zg.queue.v1');
+        } catch {}
+        const seed = Player.queue.slice();
+        const current = Player.current;
+        const longQueue = Array.from({ length: 240 }, (_, i) => ({ ...seed[i % seed.length], id: `ring-demo-${i}` }));
+        longQueue[120] = current;
+        Player.queue = longQueue;
+        Player.index = 120;
+        Player.repeat = 'all';
+        NP.render();
+        await wait(900);
+        const visible = () => [...$$('.cf-item:not(.recycling)')];
+        const indexes = () => visible().map((el) => +el.dataset.qi);
+        const initial = { count: visible().length, unique: new Set(indexes()).size, current: $('[data-qi="120"].cf-item.cur') != null };
+        Player.index = 121;
+        NP.render();
+        await wait(900);
+        const stepped = { count: visible().length, current: $('[data-qi="121"].cf-item.cur') != null, removed: !indexes().includes(114), added: indexes().includes(127) };
+        Player.repeat = 'off';
+        Player.index = 239;
+        NP.render();
+        await wait(900);
+        const finite = { count: visible().length, current: $('[data-qi="239"].cf-item.cur') != null, wrapped: indexes().includes(0) };
+        Player.repeat = 'all';
+        NP.render();
+        await wait(900);
+        const looped = { count: visible().length, current: $('[data-qi="239"].cf-item.cur') != null, wrapped: indexes().includes(0) };
+        const report = { initial, stepped, finite, looped, sizes: [] };
+        for (const [width, height] of [[1920, 1000], [1280, 800], [900, 700], [600, 760]]) {
+          await window.__TAURI__.core.invoke('debug_resize', { width, height });
+          await wait(400);
+          const contained = visible().every((el) => {
+            const r = el.getBoundingClientRect();
+            return r.left >= -2 && r.right <= innerWidth + 2 && r.top >= -2 && r.bottom <= innerHeight + 2;
+          });
+          report.sizes.push({ requested: [width, height], actual: [innerWidth, innerHeight], contained });
+        }
+        const renderStarted = performance.now();
+        for (let i = 0; i < 120; i++) NP.render();
+        report.renderMs = Math.round((performance.now() - renderStarted) / 120 * 1000) / 1000;
+        report.pass = initial.count === 13 && initial.unique === 13 && initial.current &&
+          stepped.count === 13 && stepped.current && stepped.removed && stepped.added &&
+          finite.count === 7 && finite.current && !finite.wrapped &&
+          looped.count === 13 && looped.current && looped.wrapped && report.sizes.every((s) => s.contained);
+        console.warn('SELFTEST nporbitring: ' + JSON.stringify(report));
+        await window.__TAURI__.core.invoke('debug_resize', { width: extra.endsWith('wide') ? 1920 : 1400, height: extra.endsWith('wide') ? 1000 : 900 });
+        Player.index = 120;
+        NP.render();
+        await wait(900);
+        return window.zvuk.screenshotReady(350);
+      }
       if (extra === 'nplayout') {
         const report = { sizes: [], pass: true };
         for (const [width, height] of [[1280, 800], [1000, 740], [800, 700], [600, 760]]) {
@@ -2928,6 +3013,29 @@
           side.dispatchEvent(new PointerEvent('pointermove', ev));
         }
         await wait(1200);
+      } else if (extra === 'npcurrent') {
+        const current = $('.cf-item.cur');
+        const r = current.getBoundingClientRect();
+        const x = r.left + r.width / 2;
+        const y = r.top + r.height / 2;
+        await window.zvuk.debug.mouse(x, 20);
+        await wait(150);
+        await window.zvuk.debug.mouse(x, y);
+        await wait(500);
+        await window.zvuk.debug.mouse(x + r.width * 0.22, y - r.height * 0.18);
+        await wait(300);
+        const tilt = current.querySelector('.cf-tilt');
+        const card = current.querySelector('.cf-card');
+        const shine = Number(getComputedStyle(current.querySelector('.cf-shine')).opacity);
+        const source = $('#npSource').getBoundingClientRect();
+        const sourceError = Math.abs(source.left + source.width / 2 - innerWidth / 2);
+        const result = {
+          hover: current.matches(':hover'), noPlay: !current.querySelector('.cf-play'), shine,
+          rx: parseFloat(tilt.style.getPropertyValue('--rx')), mx: parseFloat(card.style.getPropertyValue('--mx')),
+          zoom: getComputedStyle(current).getPropertyValue('--art-scale').trim(), lift: card.style.getPropertyValue('--hz'), sourceError,
+        };
+        result.pass = result.hover && result.noPlay && result.shine > 0.7 && Math.abs(result.rx) > 1 && Math.abs(result.mx) > 1 && result.zoom === '1.06' && result.lift === '36px' && sourceError < 2;
+        console.warn('SELFTEST npcurrent: ' + JSON.stringify(result));
       }
       if (extra.includes('viz')) {
         $('.vz-gear') && $('.vz-gear').click();
@@ -3549,8 +3657,15 @@
       const panel = $(`${scope} .vz-controls`);
       gear?.click();
       await wait(180);
-      const result = { open: false, allStyles: false, presets: false, range: false, dim: false, close: false, reopened: false };
-      result.open = panel && !panel.classList.contains('hidden') && gear.getAttribute('aria-expanded') === 'true';
+      const result = { open: false, allStyles: false, presets: false, range: false, dim: false, close: false, reopened: false, gearVisible: false, separate: false };
+      result.open = panel && !panel.classList.contains('hidden') && gear?.getAttribute('aria-expanded') === 'true';
+      result.gearVisible = Boolean(gear && getComputedStyle(gear).display !== 'none' && gear.getBoundingClientRect().width > 0);
+      const queueCount = $('#npQueueCount');
+      if (extra === 'npvizpanel' && gear && queueCount && getComputedStyle(queueCount).display !== 'none') {
+        const c = queueCount.getBoundingClientRect();
+        const g = gear.getBoundingClientRect();
+        result.separate = c.right <= g.left - 8;
+      } else result.separate = true;
       let stylesOk = true;
       for (const style of VizScene.STYLES) {
         panel.querySelector(`[data-vk="style"][data-vv="${style.id}"]`)?.click();
@@ -4660,7 +4775,29 @@
       const st = [...$$('.set-title')].find((x) => x.textContent.includes('Полоса времени'));
       if (st) st.scrollIntoView({ block: 'start' });
       await silentPlay(0);
-    } else if (extra === 'waveplay' || extra === 'waveplaywide') {
+    } else if (extra === 'gravityhome' || extra === 'gravitywave') {
+      const home = extra === 'gravityhome';
+      const canvas = home ? $('#homeRing') : $('#waveCosmos');
+      const hero = canvas?.closest(home ? '.home-wave' : '.wv-hero');
+      const play = hero?.querySelector('#waveOrb');
+      for (let i = 0; i < 70 && !(canvas?._gravity?.frames > 4); i++) await wait(100);
+      const report = { page: home ? 'home' : 'wave', scene: canvas?.dataset.scene, sizes: [] };
+      for (const [width, height] of [[1920, 1000], [1280, 800], [900, 700], [600, 760]]) {
+        await window.__TAURI__.core.invoke('debug_resize', { width, height });
+        await wait(450);
+        const c = canvas.getBoundingClientRect();
+        const b = play.getBoundingClientRect();
+        const state = canvas._gravity;
+        const centerError = state ? Math.hypot(c.left + state.x - b.left - b.width / 2, c.top + state.y - b.top - b.height / 2) : 999;
+        const map = hero.querySelector(home ? '.home-orbital-map' : '.wv-orbital-map');
+        const contained = b.left >= innerWidth * 0 && b.right <= innerWidth + 1 && b.top >= 0 && b.bottom <= innerHeight + 1;
+        report.sizes.push({ requested: [width, height], centerError: Math.round(centerError * 10) / 10, mapHidden: getComputedStyle(map).visibility === 'hidden', contained, frames: state?.frames || 0 });
+      }
+      report.pass = report.scene === 'gravity' && report.sizes.every((s) => s.centerError < 2 && s.mapHidden && s.contained && s.frames > 4);
+      console.warn('SELFTEST gravity: ' + JSON.stringify(report));
+      await window.__TAURI__.core.invoke('debug_resize', { width: 1400, height: 900 });
+      await wait(450);
+    } else if (extra === 'waveplay' || extra === 'waveplaywide' || extra === 'gravityplay') {
       if (extra === 'waveplaywide') {
         await window.__TAURI__.core.invoke('debug_resize', { width: 1920, height: 1000 });
         await wait(600);
@@ -4679,6 +4816,23 @@
       const compact = Boolean(nowRect && copyRect && nowRect.width <= Math.min(copyRect.width, 540) + 1 && gap >= 0 && gap < 360 && nowRect.right <= copyRect.right + 1);
       console.warn(`SELFTEST wave: source=${Player.source?.kind} playing=${Player.playing} track=${Player.current?.id} level=${Viz.level.toFixed(3)}`);
       console.warn('SELFTEST wavetrack: ' + JSON.stringify({ width: Math.round(nowRect?.width || 0), copyWidth: Math.round(copyRect?.width || 0), gap, compact, pass: Player.source?.kind === 'wave' && compact }));
+      if (extra === 'gravityplay') {
+        const canvas = $('#waveCosmos');
+        const beforeFrames = canvas._gravity?.frames || 0;
+        const iconIs = (name) => {
+          const template = document.createElement('template');
+          template.innerHTML = ICONS[name];
+          return Boolean($('#waveOrb .i svg')?.isEqualNode(template.content.firstChild));
+        };
+        $('#waveOrb').click();
+        await wait(650);
+        const paused = Player.source?.kind === 'wave' && !Player.playing && $('#waveOrb').classList.contains('playing') === false && iconIs('play');
+        $('#waveOrb').click();
+        await wait(900);
+        const resumed = Player.source?.kind === 'wave' && Player.playing && $('#waveOrb').classList.contains('playing') && iconIs('pause');
+        const animated = (canvas._gravity?.frames || 0) > beforeFrames + 4;
+        console.warn('SELFTEST gravityplay: ' + JSON.stringify({ scene: canvas.dataset.scene, paused, resumed, animated, pass: canvas.dataset.scene === 'gravity' && paused && resumed && animated }));
+      }
     } else if (extra === 'collapse') {
       toggleSection('lib');
       toggleSection('pl');
@@ -4726,6 +4880,47 @@
       inp.value = 'atomic hear';
       inp.dispatchEvent(new Event('input', { bubbles: true }));
       await wait(2500);
+    } else if (extra === 'likedfilter') {
+      const input = $('#likedFilter');
+      const root = $('#likedList .tracks');
+      const normalize = (value) => String(value || '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
+      const initialRows = [...root.querySelectorAll('.tr')];
+      const counts = new Map();
+      for (const row of initialRows) {
+        const title = normalize(row.querySelector('.tn')?.textContent);
+        const char = title.match(/[\p{L}\p{N}]/u)?.[0];
+        if (char) counts.set(char, (counts.get(char) || 0) + 1);
+      }
+      const query = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] || 'g';
+      const title = normalize(initialRows[0]?.querySelector('.tn')?.textContent);
+      const word = title.split(' ')[0] || query;
+      const type = (value) => {
+        input.value = value;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      input.focus();
+      for (const value of [query, word, title, query]) type(value);
+      const currentRows = [...root.querySelectorAll('.tr')];
+      const matches = (rows) => rows.length > 0 && rows.every((row) => normalize(`${row.querySelector('.tn')?.textContent} ${row.querySelector('.t2')?.textContent} ${row.querySelector('.al')?.textContent}`).includes(query));
+      const immediate = matches(currentRows);
+      const animated = currentRows.some((row) => Boolean(row._filterAnimation));
+      await wait(500);
+      const rows = [...root.querySelectorAll('.tr')];
+      let positions = true;
+      if (root.classList.contains('virtualized') && rows.length) {
+        const step = parseFloat(rows[0].style.height) + (parseFloat(getComputedStyle(root).rowGap) || 0);
+        positions = rows.every((row) => Math.abs(parseFloat(row.style.top) - Number(row.dataset.idx) * step) < 1);
+      }
+      const firstGap = rows.length ? Math.abs(rows[0].getBoundingClientRect().top - root.getBoundingClientRect().top - (parseFloat(getComputedStyle(root).paddingTop) || 0)) : 999;
+      type('zzzz-no-such-track-изр');
+      const emptyBox = $('.liked-filter-empty');
+      const empty = root.querySelectorAll('.tr').length === 0 && emptyBox && !emptyBox.hidden;
+      type(query);
+      await wait(450);
+      const restored = matches([...root.querySelectorAll('.tr')]);
+      const report = { query, immediate, animated, positions, firstGap: Math.round(firstGap * 10) / 10, empty: Boolean(empty), restored, count: currentRows.length };
+      report.pass = immediate && animated && positions && firstGap <= 12 && empty && restored;
+      console.warn('SELFTEST likedfilter: ' + JSON.stringify(report));
     } else if (extra === 'novatest') {
       await silentPlay(0);
       openPanel('nova');
